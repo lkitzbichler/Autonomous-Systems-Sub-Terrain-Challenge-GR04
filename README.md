@@ -112,7 +112,41 @@ sudo apt install -y git git-lfs curl build-essential
 
 ### 2.1.6 Build Code
 
+<details>
+
+Bash file should be executable already.
+If not run:
+
+```bash
+chmod +x build.bash
+```
+
+When willing to finally build, run:
+
+```bash
+./build.bash
+```
+
+</details>
+
 ### 2.1.7 Run Everything
+
+<details>
+
+Bash file should be executable already.
+If not run:
+
+```bash
+chmod +x run.bash
+```
+
+When willing to run the simulation and rest, run:
+
+```bash
+./run.bash
+```
+
+</details>
 
 </details>
 
