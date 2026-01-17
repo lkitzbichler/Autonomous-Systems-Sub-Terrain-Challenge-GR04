@@ -1,0 +1,37 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from mav_msgs/msg/GpsWaypoint.msg
+// generated code does not contain a copyright notice
+
+#include "std_msgs/msg/Header.idl"
+
+module mav_msgs {
+  module msg {
+    struct GpsWaypoint {
+      std_msgs::msg::Header header;
+
+      @verbatim (language="comment", text=
+        "latitude in degree")
+      double latitude;
+
+      @verbatim (language="comment", text=
+        "longitude in degree")
+      double longitude;
+
+      @verbatim (language="comment", text=
+        "above start-up point")
+      double altitude;
+
+      @verbatim (language="comment", text=
+        "GPS heading")
+      double heading;
+
+      @verbatim (language="comment", text=
+        "maximum approach speed")
+      double max_speed;
+
+      @verbatim (language="comment", text=
+        "maximum approach accelerations")
+      double max_acc;
+    };
+  };
+};

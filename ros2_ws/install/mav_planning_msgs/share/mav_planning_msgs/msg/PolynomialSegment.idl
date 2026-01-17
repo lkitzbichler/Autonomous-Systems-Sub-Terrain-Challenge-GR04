@@ -1,0 +1,51 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from mav_planning_msgs/msg/PolynomialSegment.msg
+// generated code does not contain a copyright notice
+
+#include "builtin_interfaces/msg/Duration.idl"
+#include "std_msgs/msg/Header.idl"
+
+module mav_planning_msgs {
+  module msg {
+    struct PolynomialSegment {
+      std_msgs::msg::Header header;
+
+      @verbatim (language="comment", text=
+        "order of the polynomial + 1, should match size of x[]")
+      int32 num_coeffs;
+
+      @verbatim (language="comment", text=
+        "duration of the segment")
+      builtin_interfaces::msg::Duration segment_time;
+
+      @verbatim (language="comment", text=
+        "coefficients for the x-axis, INCREASING order")
+      sequence<double> x;
+
+      @verbatim (language="comment", text=
+        "coefficients for the y-axis, INCREASING order")
+      sequence<double> y;
+
+      @verbatim (language="comment", text=
+        "coefficients for the z-axis, INCREASING order")
+      sequence<double> z;
+
+      @verbatim (language="comment", text=
+        "coefficients for the rotation x-vector, INCREASING order")
+      sequence<double> rx;
+
+      @verbatim (language="comment", text=
+        "coefficients for the rotation y-vector, INCREASING order")
+      sequence<double> ry;
+
+      @verbatim (language="comment", text=
+        "coefficients for the rotation z-vector, INCREASING order")
+      sequence<double> rz;
+
+      @verbatim (language="comment", text=
+        "For backwards compatibility with underactuated (4DOF) commands):" "\n"
+        "coefficients for the yaw, INCREASING order")
+      sequence<double> yaw;
+    };
+  };
+};

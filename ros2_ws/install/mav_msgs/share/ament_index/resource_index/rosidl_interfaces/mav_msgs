@@ -1,0 +1,16 @@
+msg/Actuators.idl
+msg/Actuators.msg
+msg/AttitudeThrust.idl
+msg/AttitudeThrust.msg
+msg/FilteredSensorData.idl
+msg/FilteredSensorData.msg
+msg/GpsWaypoint.idl
+msg/GpsWaypoint.msg
+msg/RateThrust.idl
+msg/RateThrust.msg
+msg/RollPitchYawrateThrust.idl
+msg/RollPitchYawrateThrust.msg
+msg/Status.idl
+msg/Status.msg
+msg/TorqueThrust.idl
+msg/TorqueThrust.msg

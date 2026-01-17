@@ -1,0 +1,21 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from mav_planning_msgs/srv/ChangeNameService.srv
+// generated code does not contain a copyright notice
+
+
+module mav_planning_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "request fields")
+    struct ChangeNameService_Request {
+      string name;
+    };
+    @verbatim (language="comment", text=
+      "True on success, false on failure")
+    struct ChangeNameService_Response {
+      boolean success;
+
+      string message;
+    };
+  };
+};
