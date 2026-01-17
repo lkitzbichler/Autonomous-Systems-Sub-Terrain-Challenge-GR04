@@ -1,0 +1,31 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from mav_msgs/msg/RateThrust.msg
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/Vector3.idl"
+#include "std_msgs/msg/Header.idl"
+
+module mav_msgs {
+  module msg {
+    struct RateThrust {
+      std_msgs::msg::Header header;
+
+      @verbatim (language="comment", text=
+        "We use the coordinate frames with the following convention:" "\n"
+        "  x: forward" "\n"
+        "  y: left" "\n"
+        "  z: up" "\n"
+        "Roll-, pitch-, yaw-rate around body axes")
+      @unit (value="rad/s")
+      geometry_msgs::msg::Vector3 angular_rates;
+
+      @verbatim (language="comment", text=
+        "Thrust expressed in the body frame." "\n"
+        "For a fixed-wing, usually the x-component is used." "\n"
+        "For a multi-rotor, usually the z-component is used." "\n"
+        "Set all un-used components to 0.")
+      @unit (value="N")
+      geometry_msgs::msg::Vector3 thrust;
+    };
+  };
+};

@@ -1,0 +1,41 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/actuators__type_support.cpp.o"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/actuators__type_support.cpp.o.d"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/attitude_thrust__type_support.cpp.o"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/attitude_thrust__type_support.cpp.o.d"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/filtered_sensor_data__type_support.cpp.o"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/filtered_sensor_data__type_support.cpp.o.d"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/gps_waypoint__type_support.cpp.o"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/gps_waypoint__type_support.cpp.o.d"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/rate_thrust__type_support.cpp.o"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/rate_thrust__type_support.cpp.o.d"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/roll_pitch_yawrate_thrust__type_support.cpp.o"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/roll_pitch_yawrate_thrust__type_support.cpp.o.d"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/status__type_support.cpp.o"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/status__type_support.cpp.o.d"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/torque_thrust__type_support.cpp.o"
+  "CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/torque_thrust__type_support.cpp.o.d"
+  "libmav_msgs__rosidl_typesupport_fastrtps_cpp.pdb"
+  "libmav_msgs__rosidl_typesupport_fastrtps_cpp.so"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/actuators__rosidl_typesupport_fastrtps_cpp.hpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/attitude_thrust__rosidl_typesupport_fastrtps_cpp.hpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/actuators__type_support.cpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/attitude_thrust__type_support.cpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/filtered_sensor_data__type_support.cpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/gps_waypoint__type_support.cpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/rate_thrust__type_support.cpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/roll_pitch_yawrate_thrust__type_support.cpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/status__type_support.cpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/dds_fastrtps/torque_thrust__type_support.cpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/filtered_sensor_data__rosidl_typesupport_fastrtps_cpp.hpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/gps_waypoint__rosidl_typesupport_fastrtps_cpp.hpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/rate_thrust__rosidl_typesupport_fastrtps_cpp.hpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/roll_pitch_yawrate_thrust__rosidl_typesupport_fastrtps_cpp.hpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/status__rosidl_typesupport_fastrtps_cpp.hpp"
+  "rosidl_typesupport_fastrtps_cpp/mav_msgs/msg/detail/torque_thrust__rosidl_typesupport_fastrtps_cpp.hpp"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang CXX)
+  include(CMakeFiles/mav_msgs__rosidl_typesupport_fastrtps_cpp.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()

@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/CMakeFiles/libsocket"
+		},
+		{
+			"file" : "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/CMakeFiles/libsocket.rule"
+		},
+		{
+			"file" : "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/CMakeFiles/libsocket-complete.rule"
+		},
+		{
+			"file" : "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/libsocket-prefix/src/libsocket-stamp/libsocket-build.rule"
+		},
+		{
+			"file" : "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/libsocket-prefix/src/libsocket-stamp/libsocket-configure.rule"
+		},
+		{
+			"file" : "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/libsocket-prefix/src/libsocket-stamp/libsocket-download.rule"
+		},
+		{
+			"file" : "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/libsocket-prefix/src/libsocket-stamp/libsocket-install.rule"
+		},
+		{
+			"file" : "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/libsocket-prefix/src/libsocket-stamp/libsocket-mkdir.rule"
+		},
+		{
+			"file" : "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/libsocket-prefix/src/libsocket-stamp/libsocket-patch.rule"
+		},
+		{
+			"file" : "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/libsocket-prefix/src/libsocket-stamp/libsocket-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"libsocket"
+		],
+		"name" : "libsocket"
+	}
+}

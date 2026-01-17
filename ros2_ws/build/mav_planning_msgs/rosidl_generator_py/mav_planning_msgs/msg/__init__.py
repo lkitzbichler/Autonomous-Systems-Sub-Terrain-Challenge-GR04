@@ -1,0 +1,9 @@
+from mav_planning_msgs.msg._point2_d import Point2D  # noqa: F401
+from mav_planning_msgs.msg._point_cloud_with_pose import PointCloudWithPose  # noqa: F401
+from mav_planning_msgs.msg._polygon2_d import Polygon2D  # noqa: F401
+from mav_planning_msgs.msg._polygon_with_holes import PolygonWithHoles  # noqa: F401
+from mav_planning_msgs.msg._polygon_with_holes_stamped import PolygonWithHolesStamped  # noqa: F401
+from mav_planning_msgs.msg._polynomial_segment import PolynomialSegment  # noqa: F401
+from mav_planning_msgs.msg._polynomial_segment4_d import PolynomialSegment4D  # noqa: F401
+from mav_planning_msgs.msg._polynomial_trajectory import PolynomialTrajectory  # noqa: F401
+from mav_planning_msgs.msg._polynomial_trajectory4_d import PolynomialTrajectory4D  # noqa: F401
