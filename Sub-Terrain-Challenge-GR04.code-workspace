@@ -1,4 +1,19 @@
 {
+	"recommendations": [
+		"ms-vscode.cpptools",
+		"ms-toolsai.jupyter",
+		"MermaidChart.vscode-mermaid-chart",
+		"jacobycwang.pcd-viewer-mod"
+		"tomoki1207.pdf",
+		"Gruntfuggly.todo-tree",
+		"nonanonno.vscode-ros2",
+		"Ranch-Hand-Robotics.rde-pack",
+		"redhat.vscode-yaml",
+		"ms-python.python",
+		"ms-python.vscode-pylance",
+		"ms-python.debugpy",
+		"llvm-vs-code-extensions.vscode-clangd"
+  	],
 	"folders": [
 		{
 			"path": "."
