@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>controller_pkg</name>
+  <version>0.0.1</version>
+  <description>The UAV controller package</description>
+
+  <maintainer email="lukas.pries@tum.de">Lukas Pries</maintainer>
+  <license>MIT</license>
+
+  <!-- Build system -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Core deps -->
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_eigen</depend>
+  <depend>mav_msgs</depend>
+  <build_depend>eigen3_cmake_module</build_depend>
+  <depend>eigen</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

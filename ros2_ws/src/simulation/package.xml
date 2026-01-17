@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>simulation</name>
+  <version>0.0.1</version>
+  <description>The AS simulation package (ROS 2)</description>
+
+  <maintainer email="lukas.pries@tum.de">Lukas Pries</maintainer>
+  <license>TODO</license>
+
+  <!-- Build system -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Core runtime/build deps -->
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>mav_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
