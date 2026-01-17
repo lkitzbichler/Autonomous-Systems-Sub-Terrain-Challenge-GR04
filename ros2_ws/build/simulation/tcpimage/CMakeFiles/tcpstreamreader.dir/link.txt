@@ -1,2 +1,0 @@
-/usr/bin/ar qc libtcpstreamreader.a CMakeFiles/tcpstreamreader.dir/TCPStreamReader.cpp.o
-/usr/bin/ranlib libtcpstreamreader.a
