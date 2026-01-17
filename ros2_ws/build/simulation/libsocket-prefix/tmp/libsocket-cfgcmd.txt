@@ -1,1 +1,0 @@
-cmd='/usr/bin/cmake;-DCMAKE_INSTALL_PREFIX:PATH=/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation;-DCMAKE_BUILD_TYPE:STRING=Release;-DBUILD_SHARED_LIBS=ON;-DCMAKE_POLICY_DEFAULT_CMP0077=NEW;-GUnix Makefiles;-S;<SOURCE_DIR><SOURCE_SUBDIR>;-B;<BINARY_DIR>'
