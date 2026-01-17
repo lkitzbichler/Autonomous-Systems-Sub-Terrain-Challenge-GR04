@@ -90,6 +90,8 @@ ROS     :         ROS2 Jazzy
 ROS-DIR :         /opt/ros/jazzy
 ```
 
+---
+
 For use of git, successfull compilation of c++ and the use of python the following packages have to be installed:
 
 ```bash
