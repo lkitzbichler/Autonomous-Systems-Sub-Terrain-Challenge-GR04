@@ -82,6 +82,22 @@
 
 ### 2.1.0 Prerequisites
 
+<details>
+
+```text
+OS      :         Ubuntu 24.04
+ROS     :         ROS2 Jazzy
+ROS-DIR :         /opt/ros/jazzy
+```
+
+For use of git, successfull compilation of c++ and the use of python the following packages have to be installed:
+
+```bash
+sudo apt install -y git git-lfs curl build-essential
+```
+
+</details>
+
 ### 2.1.1 Clone Repository
 
 ### 2.1.2 Install & Setup VSCode
