@@ -1,4 +1,4 @@
-# [Autonomous Systems](https://sharelatex.tum.de/project/69692203c9cf534f5a08821c): <br> Project Sub-Terrain Challenge (WS2025/26)
+# [Autonomous Systems](https://sharelatex.tum.de/read/wchjfkvjgrcb#760f11): <br> Project Sub-Terrain Challenge (WS2025/26)
 
 # Contents
 - [1. Project Planning](#1-project-planning)
