@@ -39,4 +39,7 @@
 
 # debug information files
 *.dwo
+
+# Simulation folder
 Simulation/
+Simulation.zip

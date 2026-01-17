@@ -37,6 +37,18 @@
 ## 2.1 Setup Guide
 ## 2.2 Structure Planning
 ### 2.2.1 Ros2-Nodes
+
+```mermaid 
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Working: start
+  Working --> Idle: finish
+  Working --> Error: fail
+  Error --> Idle: reset
+  Idle --> [*]
+```
+
+
 ### 2.2.2 Ros2-Packages
 ---
 ---
