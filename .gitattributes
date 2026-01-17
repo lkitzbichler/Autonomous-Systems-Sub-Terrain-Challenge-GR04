@@ -1,3 +1,4 @@
-ros2_ws/install/Simulation/lib/simulation/Simulation.x86_64 filter=lfs diff=lfs merge=lfs -text
-ros2_ws/install/Simulation/lib/simulation/UnityPlayer.so filter=lfs diff=lfs merge=lfs -text
-ros2_ws/install/Simulation/lib/simulation/Simulation_Data/** filter=lfs diff=lfs merge=lfs -text
+# Track Unity simulation binaries/data via Git LFS
+ros2_ws/install/**/Simulation.x86_64 filter=lfs diff=lfs merge=lfs -text
+ros2_ws/install/**/UnityPlayer.so   filter=lfs diff=lfs merge=lfs -text
+ros2_ws/install/**/Simulation_Data/** filter=lfs diff=lfs merge=lfs -text
