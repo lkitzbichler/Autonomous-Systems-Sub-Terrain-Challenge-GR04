@@ -1,0 +1,48 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from mav_planning_msgs/srv/PlannerService.srv
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/PoseStamped.idl"
+#include "geometry_msgs/msg/Vector3.idl"
+#include "mav_planning_msgs/msg/PolynomialTrajectory.idl"
+#include "mav_planning_msgs/msg/PolynomialTrajectory4D.idl"
+#include "trajectory_msgs/msg/MultiDOFJointTrajectory.idl"
+
+module mav_planning_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "request fields")
+    struct PlannerService_Request {
+      @verbatim (language="comment", text=
+        "start pose for the planner")
+      geometry_msgs::msg::PoseStamped start_pose;
+
+      geometry_msgs::msg::Vector3 start_velocity;
+
+      @verbatim (language="comment", text=
+        "start pose for the planner")
+      geometry_msgs::msg::PoseStamped goal_pose;
+
+      geometry_msgs::msg::Vector3 goal_velocity;
+
+      geometry_msgs::msg::Vector3 bounding_box;
+    };
+    @verbatim (language="comment", text=
+      "True on success, false on planning failure")
+    struct PlannerService_Response {
+      boolean success;
+
+      @verbatim (language="comment", text=
+        "Either contains a polynomial trajectory:")
+      mav_planning_msgs::msg::PolynomialTrajectory polynomial_plan;
+
+      mav_planning_msgs::msg::PolynomialTrajectory4D polynomial_plan_4d;
+
+      @verbatim (language="comment", text=
+        "or a MultiDOFJointTrajectory containing a sampled path (or straight-line" "\n"
+        "waypoints, depending on the planner)." "\n"
+        "Only one of these should be non-empty.")
+      trajectory_msgs::msg::MultiDOFJointTrajectory sampled_plan;
+    };
+  };
+};

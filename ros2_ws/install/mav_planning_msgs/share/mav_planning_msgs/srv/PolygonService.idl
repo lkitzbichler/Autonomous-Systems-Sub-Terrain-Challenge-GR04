@@ -1,0 +1,25 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from mav_planning_msgs/srv/PolygonService.srv
+// generated code does not contain a copyright notice
+
+#include "mav_planning_msgs/msg/PolygonWithHolesStamped.idl"
+
+module mav_planning_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "A service to set a new polygon with holes." "\n"
+      "Request fields:")
+    struct PolygonService_Request {
+      @verbatim (language="comment", text=
+        "The new polygon.")
+      mav_planning_msgs::msg::PolygonWithHolesStamped polygon;
+    };
+    @verbatim (language="comment", text=
+      "Response fields:")
+    struct PolygonService_Response {
+      @verbatim (language="comment", text=
+        "True on success, false on polygon error.")
+      boolean success;
+    };
+  };
+};

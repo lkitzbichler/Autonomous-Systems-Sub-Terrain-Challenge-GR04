@@ -1,0 +1,16 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from mav_planning_msgs/msg/Point2D.msg
+// generated code does not contain a copyright notice
+
+
+module mav_planning_msgs {
+  module msg {
+    @verbatim (language="comment", text=
+      "This contains the position of a 2D point.")
+    struct Point2D {
+      double x;
+
+      double y;
+    };
+  };
+};

@@ -1,0 +1,34 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from mav_msgs/msg/FilteredSensorData.msg
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/Vector3.idl"
+#include "std_msgs/msg/Header.idl"
+
+module mav_msgs {
+  module msg {
+    struct FilteredSensorData {
+      std_msgs::msg::Header header;
+
+      @verbatim (language="comment", text=
+        "acceleration in vehicle frame")
+      @unit (value="m/s^2")
+      geometry_msgs::msg::Vector3 accelerometer;
+
+      @verbatim (language="comment", text=
+        "rotational velocity in vehicle frame")
+      @unit (value="rad/s")
+      geometry_msgs::msg::Vector3 gyroscope;
+
+      @verbatim (language="comment", text=
+        "Magnetometer measurements in vehicle frame")
+      @unit (value="uT")
+      geometry_msgs::msg::Vector3 magnetometer;
+
+      @verbatim (language="comment", text=
+        "Height from barometer relative to start-up point")
+      @unit (value="m")
+      double barometer;
+    };
+  };
+};

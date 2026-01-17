@@ -1,0 +1,17 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from mav_planning_msgs/msg/PolygonWithHoles.msg
+// generated code does not contain a copyright notice
+
+#include "mav_planning_msgs/msg/Polygon2D.idl"
+
+module mav_planning_msgs {
+  module msg {
+    @verbatim (language="comment", text=
+      "A message to define a 2D polygon with holes.")
+    struct PolygonWithHoles {
+      mav_planning_msgs::msg::Polygon2D hull;
+
+      sequence<mav_planning_msgs::msg::Polygon2D> holes;
+    };
+  };
+};
