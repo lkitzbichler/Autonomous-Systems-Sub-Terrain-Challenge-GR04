@@ -1,0 +1,31 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from mav_msgs/msg/Actuators.msg
+// generated code does not contain a copyright notice
+
+#include "std_msgs/msg/Header.idl"
+
+module mav_msgs {
+  module msg {
+    struct Actuators {
+      std_msgs::msg::Header header;
+
+      @verbatim (language="comment", text=
+        "This message defines lowest level commands to be sent to the actuator(s)." "\n"
+        "Angle of the actuator in." "\n"
+        "E.g. servo angle of a control surface(not angle of the surface!), orientation-angle of a thruster.")
+      @unit (value="rad")
+      sequence<double> angles;
+
+      @verbatim (language="comment", text=
+        "Angular velocities of the actuator in." "\n"
+        "E.g. \"rpm\" of rotors, propellers, thrusters")
+      @unit (value="rad/s")
+      sequence<double> angular_velocities;
+
+      @verbatim (language="comment", text=
+        "Everything that does not fit the above, normalized between.")
+      @unit (value="-1 ... 1")
+      sequence<double> normalized;
+    };
+  };
+};

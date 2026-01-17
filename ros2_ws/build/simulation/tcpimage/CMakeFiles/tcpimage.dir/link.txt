@@ -1,0 +1,2 @@
+/usr/bin/ar qc libtcpimage.a CMakeFiles/tcpimage.dir/TCPImageServer.cpp.o
+/usr/bin/ranlib libtcpimage.a

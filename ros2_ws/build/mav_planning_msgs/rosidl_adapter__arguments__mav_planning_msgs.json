@@ -1,0 +1,17 @@
+{
+  "package_name": "mav_planning_msgs",
+  "non_idl_tuples": [
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:msg/Point2D.msg",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:msg/PointCloudWithPose.msg",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:msg/Polygon2D.msg",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:msg/PolygonWithHoles.msg",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:msg/PolygonWithHolesStamped.msg",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:msg/PolynomialSegment.msg",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:msg/PolynomialSegment4D.msg",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:msg/PolynomialTrajectory.msg",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:msg/PolynomialTrajectory4D.msg",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:srv/PlannerService.srv",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:srv/PolygonService.srv",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/src/mav_planning_msgs:srv/ChangeNameService.srv"
+  ]
+}

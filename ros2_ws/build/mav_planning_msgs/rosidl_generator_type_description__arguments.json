@@ -1,0 +1,28 @@
+{
+  "package_name": "mav_planning_msgs",
+  "output_dir": "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_generator_type_description/mav_planning_msgs",
+  "idl_tuples": [
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:msg/Point2D.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:msg/PointCloudWithPose.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:msg/Polygon2D.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:msg/PolygonWithHoles.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:msg/PolygonWithHolesStamped.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:msg/PolynomialSegment.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:msg/PolynomialSegment4D.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:msg/PolynomialTrajectory.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:msg/PolynomialTrajectory4D.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:srv/PlannerService.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:srv/PolygonService.idl",
+    "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/mav_planning_msgs/rosidl_adapter/mav_planning_msgs:srv/ChangeNameService.idl"
+  ],
+  "include_paths": [
+    "builtin_interfaces:/opt/ros/jazzy/share/builtin_interfaces",
+    "geometry_msgs:/opt/ros/jazzy/share/geometry_msgs",
+    "std_msgs:/opt/ros/jazzy/share/std_msgs",
+    "mav_msgs:/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/mav_msgs/share/mav_msgs",
+    "nav_msgs:/opt/ros/jazzy/share/nav_msgs",
+    "sensor_msgs:/opt/ros/jazzy/share/sensor_msgs",
+    "service_msgs:/opt/ros/jazzy/share/service_msgs",
+    "trajectory_msgs:/opt/ros/jazzy/share/trajectory_msgs"
+  ]
+}

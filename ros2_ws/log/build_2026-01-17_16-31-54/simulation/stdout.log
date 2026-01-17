@@ -1,0 +1,170 @@
+-- The C compiler identification is GNU 13.3.0
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/ccache - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/ccache - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found ament_cmake: 2.5.4 (/opt/ros/jazzy/share/ament_cmake/cmake)
+-- Found Python3: /usr/bin/python3 (found version "3.12.3") found components: Interpreter 
+-- Found rclcpp: 28.1.13 (/opt/ros/jazzy/share/rclcpp/cmake)
+-- Found rosidl_generator_c: 4.6.6 (/opt/ros/jazzy/share/rosidl_generator_c/cmake)
+-- Found rosidl_generator_cpp: 4.6.6 (/opt/ros/jazzy/share/rosidl_generator_cpp/cmake)
+-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+-- Found rmw_implementation_cmake: 7.3.2 (/opt/ros/jazzy/share/rmw_implementation_cmake/cmake)
+-- Found rmw_fastrtps_cpp: 8.4.3 (/opt/ros/jazzy/share/rmw_fastrtps_cpp/cmake)
+-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.13")  
+-- Found FastRTPS: /opt/ros/jazzy/include (Required is at least version "2.13") 
+-- Using RMW implementation 'rmw_fastrtps_cpp' as default
+-- Found std_msgs: 5.3.6 (/opt/ros/jazzy/share/std_msgs/cmake)
+-- Found geometry_msgs: 5.3.6 (/opt/ros/jazzy/share/geometry_msgs/cmake)
+-- Found tf2: 0.36.16 (/opt/ros/jazzy/share/tf2/cmake)
+-- Found tf2_ros: 0.36.16 (/opt/ros/jazzy/share/tf2_ros/cmake)
+-- Found tf2_geometry_msgs: 0.36.16 (/opt/ros/jazzy/share/tf2_geometry_msgs/cmake)
+-- Found eigen3_cmake_module: 0.3.0 (/opt/ros/jazzy/share/eigen3_cmake_module/cmake)
+-- Found Eigen3: TRUE (found version "3.4.0") 
+-- Ensuring Eigen3 include directory is part of orocos-kdl CMake target
+-- Found mav_msgs: 3.3.3 (/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/mav_msgs/share/mav_msgs/cmake)
+-- Found trajectory_msgs: 5.3.6 (/opt/ros/jazzy/share/trajectory_msgs/cmake)
+-- Found visualization_msgs: 5.3.6 (/opt/ros/jazzy/share/visualization_msgs/cmake)
+-- Found cv_bridge: 4.1.0 (/opt/ros/jazzy/share/cv_bridge/cmake)
+-- Found OpenCV: /usr (found version "4.6.0") 
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+-- Configuring done (1.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation
+[ 11%] [32mBuilding CXX object CMakeFiles/state_estimate_corruptor_node.dir/src/state_estimate_corruptor_node.cpp.o[0m
+[ 11%] [34m[1mCreating directories for 'libsocket'[0m
+[ 16%] [34m[1mPerforming download step (git clone) for 'libsocket'[0m
+Your branch is up to date with 'origin/master'.
+[ 22%] [34m[1mNo update step for 'libsocket'[0m
+[ 27%] [34m[1mNo patch step for 'libsocket'[0m
+[ 33%] [34m[1mPerforming configure step for 'libsocket'[0m
+-- The C compiler identification is GNU 13.3.0
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/ccache - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/ccache - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (0.4s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/build/simulation/libsocket-prefix/src/libsocket-build
+[ 38%] [34m[1mPerforming build step for 'libsocket'[0m
+[  4%] [32mBuilding C object C/CMakeFiles/socket_o.dir/unix/libunixsocket.c.o[0m
+[ 12%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/dgramoverstream.cpp.o[0m
+[ 12%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/dgramclient.cpp.o[0m
+[ 20%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/unixclientdgram.cpp.o[0m
+[ 25%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/inetserverdgram.cpp.o[0m
+[ 29%] [32mBuilding C object C/CMakeFiles/socket_o.dir/inet/libinetsocket.c.o[0m
+[ 29%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/inetbase.cpp.o[0m
+[ 33%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/framing.cpp.o[0m
+[ 37%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/streamclient.cpp.o[0m
+[ 41%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/inetclientstream.cpp.o[0m
+[ 45%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/select.cpp.o[0m
+[ 50%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/unixdgram.cpp.o[0m
+[ 54%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/unixserverstream.cpp.o[0m
+[ 54%] Built target socket_o
+[ 58%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/exception.cpp.o[0m
+[ 62%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/inetclientdgram.cpp.o[0m
+[ 66%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/inetdgram.cpp.o[0m
+[ 70%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/inetserverstream.cpp.o[0m
+[ 75%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/socket.cpp.o[0m
+[ 79%] [32m[1mLinking C static library libsocket_int.a[0m
+[ 83%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/unixbase.cpp.o[0m
+[ 87%] [32m[1mLinking C shared library libsocket.so[0m
+[ 91%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/unixclientstream.cpp.o[0m
+[ 91%] Built target socket
+[ 95%] [32mBuilding CXX object C++/CMakeFiles/socket++_o.dir/unixserverdgram.cpp.o[0m
+[ 95%] Built target socket_int
+[ 95%] Built target socket++_o
+[100%] [32m[1mLinking CXX shared library libsocket++.so[0m
+[100%] Built target socket++
+[ 44%] [34m[1mPerforming install step for 'libsocket'[0m
+[  8%] Built target socket_o
+[ 87%] Built target socket++_o
+[ 91%] Built target socket_int
+[ 95%] Built target socket
+[100%] Built target socket++
+[36mInstall the project...[0m
+-- Install configuration: "Release"
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/lib/libsocket.so
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/unixdgram.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/exception.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/inetclientdgram.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/libinetsocket.h
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/unixserverstream.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/dgramclient.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/streamclient.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/inetserverstream.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/unixclientdgram.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/socket.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/inetbase.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/inetserverdgram.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/unixclientstream.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/libunixsocket.h
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/select.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/inetclientstream.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/unixbase.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/unixserverdgram.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/inetdgram.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/dgramoverstream.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/framing.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/include/libsocket/epoll.hpp
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/lib/libsocket++.so
+[ 50%] [34m[1mCompleted 'libsocket'[0m
+[ 50%] Built target libsocket
+[ 61%] [32mBuilding CXX object CMakeFiles/w_to_unity.dir/src/w_to_unity.cpp.o[0m
+[ 61%] [32mBuilding CXX object tcpimage/CMakeFiles/tcpstreamreader.dir/TCPStreamReader.cpp.o[0m
+[ 66%] [32m[1mLinking CXX static library libtcpstreamreader.a[0m
+[ 66%] Built target tcpstreamreader
+[ 72%] [32mBuilding CXX object tcpimage/CMakeFiles/tcpimage.dir/TCPImageServer.cpp.o[0m
+[ 77%] [32m[1mLinking CXX static library libtcpimage.a[0m
+[ 77%] Built target tcpimage
+[ 83%] [32mBuilding CXX object CMakeFiles/unity_ros.dir/src/unity_ros.cpp.o[0m
+[ 88%] [32m[1mLinking CXX executable w_to_unity[0m
+[ 88%] Built target w_to_unity
+[ 94%] [32m[1mLinking CXX executable state_estimate_corruptor_node[0m
+[ 94%] Built target state_estimate_corruptor_node
+[100%] [32m[1mLinking CXX executable unity_ros[0m
+[100%] Built target unity_ros
+-- Install configuration: ""
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/lib/simulation/w_to_unity
+-- Set non-toolchain portion of runtime path of "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/lib/simulation/w_to_unity" to ""
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/lib/simulation/state_estimate_corruptor_node
+-- Set non-toolchain portion of runtime path of "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/lib/simulation/state_estimate_corruptor_node" to ""
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/lib/simulation/unity_ros
+-- Set non-toolchain portion of runtime path of "/home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/lib/simulation/unity_ros" to ""
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/launch
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/launch/simulation.launch.py
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/launch/unity_sim.launch.py
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/launch/unity_ros.launch.py
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/ament_index/resource_index/package_run_dependencies/simulation
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/ament_index/resource_index/parent_prefix_path/simulation
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/environment/ament_prefix_path.sh
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/environment/ament_prefix_path.dsv
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/environment/path.sh
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/environment/path.dsv
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/local_setup.bash
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/local_setup.sh
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/local_setup.zsh
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/local_setup.dsv
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/package.dsv
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/ament_index/resource_index/packages/simulation
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/cmake/ament_cmake_export_dependencies-extras.cmake
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/cmake/simulationConfig.cmake
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/cmake/simulationConfig-version.cmake
+-- Installing: /home/leon/Dev/TUM/autonome-systeme/project/Autonomous-Systems-Sub-Terrain-Challenge-GR04/ros2_ws/install/simulation/share/simulation/package.xml
