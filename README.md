@@ -19,6 +19,16 @@
 
 # 1. Project Planning
 ## 1.1 Team
+
+| ID | Last Name | First Name | Matriculation number | Github Name |
+|---:|-----------|------------|----------------------|-------------|
+| 01 | Heller    | Leo        | N/A                  | LeoHeller   |
+| 02 | Kitzbichler | Leon | N/A | lkitzbichler |
+| 03 | Kristandra | Brian | N/A | N/A |
+| 04 | Thimm | Dominik | N/A | dominik-thimm |
+| 05 | Waeger | Sebastian | N/A | 03807001 |
+
+
 ## 1.2 Requirements
 ## 1.3 Working Packages
 ## 1.4 Project Plan
