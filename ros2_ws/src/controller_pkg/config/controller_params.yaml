@@ -1,5 +1,8 @@
 # todo: add controller parameters here
 
-params: {
-                     ...
-}
+controller_node:
+  ros__parameters: 
+    kx: 20.0
+    kv: 10.0
+    kr: 12.0
+    komega: 1.5
