@@ -3,7 +3,7 @@
 		"ms-vscode.cpptools",
 		"ms-toolsai.jupyter",
 		"MermaidChart.vscode-mermaid-chart",
-		"jacobycwang.pcd-viewer-mod"
+		"jacobycwang.pcd-viewer-mod",
 		"tomoki1207.pdf",
 		"Gruntfuggly.todo-tree",
 		"nonanonno.vscode-ros2",
@@ -38,7 +38,6 @@
 			"editor.semanticHighlighting.enabled": true,
 			"editor.stickyScroll.defaultModel": "foldingProviderModel",
 			"editor.suggest.insertMode": "replace"
-		},
-		"clangd.path": "/home/leon/.config/Code/User/globalStorage/llvm-vs-code-extensions.vscode-clangd/install/21.1.0/clangd_21.1.0/bin/clangd"
+		}
 	}
 }
