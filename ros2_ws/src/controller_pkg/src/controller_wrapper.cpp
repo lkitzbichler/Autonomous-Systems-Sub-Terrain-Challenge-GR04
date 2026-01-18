@@ -32,7 +32,7 @@ ControllerNode::ControllerNode()
 
   // Initialization of ROS elements
   motor_pub_= this->create_publisher<mav_msgs::msg::Actuators>("rotor_speed_cmds", 10);
-  desired_sub_ = this->create_subscription<trajectory_msgs::msg::MultiDOFJointTrajectory>("desired_state", 10, std::bind(&ControllerNode::onDesiredState, this, std::placeholders::_1));
+  desired_sub_ = this->create_subscription<trajectory_msgs::msg::MultiDOFJointTrajectory>("command/trajectory", 10, std::bind(&ControllerNode::onDesiredState, this, std::placeholders::_1));
   current_sub_ = this->create_subscription<nav_msgs::msg::Odometry>( "current_state", 10, std::bind(&ControllerNode::onCurrentState, this, std::placeholders::_1));
   timer_= this->create_wall_timer( std::chrono::duration<double>(1.0 / hz), std::bind(&ControllerNode::controlLoop, this) );
 
