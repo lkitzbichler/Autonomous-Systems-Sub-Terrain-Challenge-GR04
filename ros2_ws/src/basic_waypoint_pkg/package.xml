@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>basic_waypoint_pkg</name>
+  <version>0.0.0</version>
+  <description>The basic_waypoint_pkg package</description>
+
+  <maintainer email="lukas.pries@tum.de">Lukas Pries</maintainer>
+  <license>TODO</license>
+
+  <!-- ROS2 build system -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Node implementation -->
+  <depend>rclcpp</depend>
+
+  <!-- Mav-related packages (ROS2 ports assumed) -->
+  <depend>mav_msgs</depend>
+  <depend>mav_planning_msgs</depend>
+  <depend>mav_trajectory_generation</depend>
+
+  <!-- Linear algebra -->
+  <depend>Eigen3</depend>
+
+  <!-- YAML library: replaces yaml_cpp_catkin -->
+  <depend>yaml-cpp</depend>
+
+    <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+
+</package>
