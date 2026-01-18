@@ -25,10 +25,10 @@ ControllerNode::ControllerNode()
   hz(1000.0)
 {
   // Declare parameters
-  kx = this->declare_parameter<double>("kx", 20.0);
-  kv = this->declare_parameter<double>("kv", 10.0);
-  kr = this->declare_parameter<double>("kr", 12.0);
-  komega = this->declare_parameter<double>("komega", 1.5);
+  kx = this->declare_parameter<double>("kx", 1.0);
+  kv = this->declare_parameter<double>("kv", 1.0);
+  kr = this->declare_parameter<double>("kr", 1.0);
+  komega = this->declare_parameter<double>("komega", 1.0);
 
   // Initialization of ROS elements
   motor_pub_= this->create_publisher<mav_msgs::msg::Actuators>("rotor_speed_cmds", 10);
@@ -81,3 +81,74 @@ void ControllerNode::onDesiredState(const trajectory_msgs::msg::MultiDOFJointTra
   // desired yaw
   this->yawd = tf2::getYaw(tf2::Quaternion(q.x(), q.y(), q.z(), q.w()));
 }
+
+void ControllerNode::onCurrentState(const nav_msgs::msg::Odometry::SharedPtr cur_state_msg){
+    //current position
+    x << cur_state_msg->pose.pose.position.x, 
+          cur_state_msg->pose.pose.position.y, 
+          cur_state_msg->pose.pose.position.z;
+
+    //current velocity
+    v << cur_state_msg->twist.twist.linear.x, 
+          cur_state_msg->twist.twist.linear.y, 
+          cur_state_msg->twist.twist.linear.z;
+
+    const auto &qmsg = cur_state_msg->pose.pose.orientation;
+    Eigen::Quaterniond q(qmsg.w, qmsg.x, qmsg.y, qmsg.z);
+    q.normalize();
+    // rotation matrix from the body-fixed frame to the inertial frame
+    R = q.toRotationMatrix();
+    Eigen::Vector3d omega_world(cur_state_msg->twist.twist.angular.x, cur_state_msg->twist.twist.angular.y, cur_state_msg->twist.twist.angular.z);
+    // angular velocity in the body-fixed frame
+    omega = R.transpose() * omega_world;
+}
+
+void ControllerNode::controlLoop(){
+    Eigen::Vector3d ex, ev, er, eomega;
+    //position and velocity errors
+    ex = this->x - this->xd;
+    ev = this->v - this->vd;
+
+    //calulation of cordnates of body fixed frame to world frame
+    Eigen::Vector3d b3d = (-kx*ex - kv*ev + m*g*e3 + m*ad).normalized();
+    Eigen::Vector3d b1c(std::cos(this->yawd), std::sin(this->yawd), 0.0);
+    Eigen::Vector3d b2d = b3d.cross(b1c).normalized();
+    Eigen::Vector3d b1d = b2d.cross(b3d).normalized();
+
+    //rotation matrix body fixed to world frame
+    Eigen::Matrix3d Rd;
+    Rd.col(0) = b1d;
+    Rd.col(1) = b2d;
+    Rd.col(2) = b3d;
+  
+    //computation of orientation error (er) and the rotation-rate error (eomega)
+    er = 0.5 * Vee(Rd.transpose() * R - R.transpose() * Rd);
+    eomega = this->omega;
+
+    //computation of the desired wrench (force + torques) to control the UAV
+    double F = (-kx*ex - kv*ev + m*g*e3 + m*ad).dot(R.col(2));
+    Eigen::Vector3d M = -kr*er - komega*eomega + omega.cross(J * omega);
+
+    //wrench to force and torques
+    F2W << cf, cf, cf, cf,
+          std::sqrt(2)/2 * d * cf,  std::sqrt(2)/2 * d * cf, -std::sqrt(2)/2 * d * cf, -std::sqrt(2)/2 * d * cf, 
+          - std::sqrt(2)/2 * d * cf, std::sqrt(2)/2 * d * cf, std::sqrt(2)/2 * d * cf,  - std::sqrt(2)/2 * d * cf,
+          cd,  -cd, cd,  -cd;
+
+    //calculation of wrench of the propellers
+    Eigen::Vector4d w = F2W.inverse() * Eigen::Vector4d (F, M(0), M(1), M(2));
+
+    double w1 = signed_sqrt(w(0));
+    double w2 = signed_sqrt(w(1));
+    double w3 = signed_sqrt(w(2));
+    double w4 = signed_sqrt(w(3));
+
+    //publishing the motorspeeds
+    mav_msgs::msg::Actuators cmd;
+    cmd.angular_velocities.resize(4);
+    cmd.angular_velocities[0] = w1;
+    cmd.angular_velocities[1] = w2;
+    cmd.angular_velocities[2] = w3;
+    cmd.angular_velocities[3] = w4;
+    motor_pub_->publish(cmd);
+  }
