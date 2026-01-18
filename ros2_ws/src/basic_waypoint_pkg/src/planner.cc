@@ -45,7 +45,7 @@ BasicPlanner::BasicPlanner(const rclcpp::Node::SharedPtr & node)
   // Subscriber for Odometry
   sub_odom_ =
     node_->create_subscription<nav_msgs::msg::Odometry>(
-      "odom", 10,
+      "current_state", 10,
       std::bind(&BasicPlanner::uavOdomCallback, this, std::placeholders::_1));
 }
 

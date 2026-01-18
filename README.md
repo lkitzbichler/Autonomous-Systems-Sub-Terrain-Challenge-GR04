@@ -151,19 +151,100 @@ When willing to run the simulation and rest, run:
 </details>
 
 ## 2.2 Structure Planning
+
+```mermaid
+flowchart LR
+  %% --- basic_waypoint_pkg ---
+  subgraph basic_waypoint_pkg
+    Planner["planner (basic_waypoint_node)"]
+    RViz[(RViz)]
+  end
+
+  %% --- mav_trajectory_generation ---
+  subgraph mav_trajectory_generation
+    Sampler["trajectory_sampler_node"]
+    Ext1[(service)]
+    Ext2[(service)]
+  end
+
+  %% --- controller_pkg ---
+  subgraph controller_pkg
+    Controller["controller_node"]
+  end
+
+  %% --- unity_bridge ---
+  subgraph unity_bridge
+    UnityState["unity_state"]
+    W2U["w_to_unity"]
+    Unity[(Unity sim)]
+  end
+
+  %% --- connections ---
+  Planner -- "trajectory (mav_planning_msgs/PolynomialTrajectory4D)" --> Sampler
+  Planner -- "trajectory_markers (visualization_msgs/MarkerArray)" --> RViz
+
+  Sampler -- "command/trajectory (trajectory_msgs/MultiDOFJointTrajectory)" --> Controller
+  Sampler -. "stop_sampling (std_srvs/Empty)" .-> Ext1
+  Sampler -. "back_to_position_hold (std_srvs/Empty)" .-> Ext2
+
+  UnityState -- "current_state (nav_msgs/Odometry)" --> Controller
+  Controller -- "rotor_speed_cmds (mav_msgs/Actuators)" --> W2U
+
+  W2U -. "UDP 12346" .-> Unity
+  Unity -. "TCP 12347" .-> UnityState
+
+```
+
 ### 2.2.1 Ros2-Nodes
 
 <details>
 
-```mermaid 
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> Working: start
-  Working --> Idle: finish
-  Working --> Error: fail
-  Error --> Idle: reset
-  Idle --> [*]
+
+```mermaid
+flowchart LR
+  %% Packages
+  subgraph basic_waypoint_pkg
+    planner[basic_waypoint_node]
+  end
+
+  subgraph mav_trajectory_generation
+    sampler[trajectory_sampler_node]
+  end
+
+  subgraph controller_pkg
+    controller[controller_node]
+  end
+
+  subgraph simulation
+    unity_state[unity_state]
+    unity_ros[unity_ros]
+    corruptor[state_estimate_corruptor_node]
+    w_to_unity[w_to_unity]
+  end
+
+  %% Core control loop
+  unity_state -- "/current_state" --> planner
+  unity_state -- "/current_state" --> controller
+  planner -- "/trajectory" --> sampler
+  sampler -- "/command/trajectory" --> controller
+  controller -- "/rotor_speed_cmds" --> w_to_unity
+
+  %% Sensor stream + state corruption
+  unity_ros -- "/true_pose" --> corruptor
+  unity_ros -- "/true_twist" --> corruptor
+  corruptor -- "/pose_est" --> pose_est_topic[(Pose Estimation Topics)]
+  corruptor -- "/twist_est" --> twist_est_topic[(Twist Estimation Topics)]
+  corruptor -- "/current_state_est" --> state_est_topic[(Odometry Estimate)]
+
+  %% Unity sensor topics (remapped)
+  unity_ros -- "/realsense/rgb/left_image_raw" --> cam_left[(Camera Topics)]
+  unity_ros -- "/realsense/rgb/right_image_raw" --> cam_right[(Camera Topics)]
+  unity_ros -- "/realsense/depth/image" --> depth[(Depth Topics)]
+  unity_ros -- "/interpolate_imu/imu" --> imu[(IMU Topic)]
+
 ```
+
+
 
 </details>
 
@@ -174,6 +255,24 @@ stateDiagram-v2
 
 
 </details>
+
+### 2.2.3 Ros2-Services
+
+<details>
+
+```mermaid
+flowchart LR
+  sampler[trajectory_sampler_node]
+  stop_srv["/stop_sampling (std_srvs/Empty)"]
+  hold_srv["/back_to_position_hold (std_srvs/Empty)"]
+
+  sampler -- "server" --> stop_srv
+  sampler -. "client" .-> hold_srv
+
+```
+
+</details>
+
 </details>
 
 
