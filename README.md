@@ -220,6 +220,7 @@ flowchart LR
     unity_ros[unity_ros]
     corruptor[state_estimate_corruptor_node]
     w_to_unity[w_to_unity]
+    unity_sim[(Unity sim)]
   end
 
   %% Core control loop
@@ -228,6 +229,8 @@ flowchart LR
   planner -- "/trajectory" --> sampler
   sampler -- "/command/trajectory" --> controller
   controller -- "/rotor_speed_cmds" --> w_to_unity
+  w_to_unity -. "UDP 12346" .-> unity_sim
+  unity_sim -. "TCP 12347" .-> unity_state
 
   %% Sensor stream + state corruption
   unity_ros -- "/true_pose" --> corruptor
