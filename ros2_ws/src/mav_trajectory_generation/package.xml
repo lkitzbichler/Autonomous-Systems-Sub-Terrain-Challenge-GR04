@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>mav_trajectory_generation</name>
+  <version>0.0.0</version>
+  <description>Polynomial trajectory generation for MAVs.</description>
+
+  <!-- Authors -->
+  <author email="markus.achtelik_devel@mavt.ethz.ch">Markus Achtelik</author>
+  <author email="michael.burri@mavt.ethz.ch">Michael Burri</author>
+  <author email="helen.oleynikova@mavt.ethz.ch">Helen Oleynikova</author>
+  <author email="brik@ethz.ch">Rik Bähnemann</author>
+  <author email="mpopovic@ethz.ch">Marija Popovic</author>
+
+  <!-- Maintainer -->
+  <maintainer email="brik@ethz.ch">Rik Bähnemann</maintainer>
+
+  <license>ASL 2.0</license>
+
+  <!-- ROS2 build system -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Dependencies
+       NOTE: These are system / rosdep-style dependencies.
+       Adjust names to match the actual rosdep keys in your ROS2 distro.
+  -->
+
+  <!-- Eigen: header-only linear algebra (replaces eigen_catkin + cmake_modules) -->
+  <depend>eigen</depend>
+
+  <!-- Glog: logging library (replaces glog_catkin) -->
+  <depend>glog</depend>
+
+  <!-- NLopt: optimization library -->
+  <depend>nlopt</depend>
+
+  <!-- YAML-CPP (replaces yaml_cpp_catkin wrapper) -->
+  <depend>yaml-cpp</depend>
+
+  <!-- mav_msgs: keep only if there is a ROS2 port/package that you actually use -->
+  <depend>mav_msgs</depend>
+
+  <depend>mav_planning_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+
+</package>
