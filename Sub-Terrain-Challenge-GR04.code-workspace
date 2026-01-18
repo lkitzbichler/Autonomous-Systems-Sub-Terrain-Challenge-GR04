@@ -26,6 +26,19 @@
 		],
 		"python.analysis.extraPaths": [
 			"/opt/ros/jazzy/lib/python3.12/site-packages"
-		]
+		],
+		"C_Cpp.intelliSenseEngine": "disabled",
+		"clangd.arguments": [
+			"--compile-commands-dir=${workspaceFolder}/ros2_ws/build"
+		],
+		"ros2.rosRootDir": "/opt/ros/jazzy",
+		"[cpp]": {
+
+			"editor.wordBasedSuggestions": "off",
+			"editor.semanticHighlighting.enabled": true,
+			"editor.stickyScroll.defaultModel": "foldingProviderModel",
+			"editor.suggest.insertMode": "replace"
+		},
+		"clangd.path": "/home/leon/.config/Code/User/globalStorage/llvm-vs-code-extensions.vscode-clangd/install/21.1.0/clangd_21.1.0/bin/clangd"
 	}
 }
