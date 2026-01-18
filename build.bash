@@ -9,7 +9,7 @@ SIM_DST="${ROS_WS}/install/simulation/lib/simulation"
 
 echo "[1/4] Building colcon workspace..."
 cd "${ROS_WS}"
-colcon build
+colcon build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 echo "Build OK."
 
 echo "[2/4] Ensuring destination exists..."
