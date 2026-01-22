@@ -1,0 +1,19 @@
+# ROS 2 package ignore
+/install/
+/build/
+/log/
+/bin/
+/lib/
+/share/
+/ament_cmake_core/
+/ament_cmake_environment_hooks/
+/ament_cmake_export_dependencies/
+/ament_cmake_index/
+/ament_cmake_package_templates/
+/ament_cmake_uninstall_target/
+/CMakeFiles/
+/cmake_install.cmake
+/CMakeCache.txt
+/Makefile
+/compile_commands.json
+/CTestTestfile.cmake
