@@ -107,11 +107,24 @@ target_link_libraries(unity_ros tcpimage)
 target_link_directories(unity_ros PRIVATE ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
 add_dependencies(unity_ros libsocket)
 
+add_executable(unity_state src/unity_state.cpp)
+ament_target_dependencies(unity_state
+  rclcpp
+  nav_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
+)
+target_link_libraries(unity_state tcpstreamreader)
+target_link_directories(unity_state PRIVATE ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
+add_dependencies(unity_state libsocket)
+
 # --- Install targets -------------------------------------
 install(TARGETS
   w_to_unity
   state_estimate_corruptor_node
   unity_ros
+  unity_state
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -8,6 +8,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.substitutions import PathJoinSubstitution
+import os
 
 
 def generate_launch_description():
@@ -21,8 +22,13 @@ def generate_launch_description():
     left_info_topic = LaunchConfiguration("left_info_topic")
     depth_image_topic = LaunchConfiguration("depth_image_topic")
     depth_info_topic = LaunchConfiguration("depth_info_topic")
+    controller_config_file = LaunchConfiguration("controller_config_file")
 
     # Declare args
+    controller_config_source = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "controller_pkg", "config", "controller_params.yaml")
+    )
+
     declared_args = [
         DeclareLaunchArgument("load_params", default_value="true"),
         DeclareLaunchArgument("corrupt_state_estimate", default_value="true"),
@@ -32,6 +38,10 @@ def generate_launch_description():
         DeclareLaunchArgument("left_info_topic", default_value="/realsense/rgb/left_image_info"),
         DeclareLaunchArgument("depth_image_topic", default_value="/realsense/depth/image"),
         DeclareLaunchArgument("depth_info_topic", default_value="/realsense/depth/camera_info"),
+        DeclareLaunchArgument(
+            "controller_config_file",
+            default_value=controller_config_source,
+        ),
     ]
 
     # <include file="$(find simulation)/launch/unity_ros.launch"> ...
@@ -59,6 +69,12 @@ def generate_launch_description():
             "depth_image_topic": depth_image_topic,
             "depth_info_topic": depth_info_topic,
         }.items(),
+    )
+
+    waypoint_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([FindPackageShare("basic_waypoint_pkg"), "launch", "waypoint_mission.launch.py"])
+        )
     )
 
     # Nodes
@@ -106,11 +122,19 @@ def generate_launch_description():
         output="screen",
     )
 
+    unity_state = Node(
+        package="simulation",
+        executable="unity_state",
+        name="unity_state",
+        output="screen",
+    )
+
     controller_node = Node(
         package="controller_pkg",
         executable="controller_node",
         name="controller_node",
         output="screen",
+        parameters=[controller_config_file],
     )
 
     # Static TF publishers
@@ -186,7 +210,9 @@ def generate_launch_description():
             state_estimate_corruptor,
             state_estimate_corruptor_disabled,
             w_to_unity,
+            unity_state,
             controller_node,
             *static_tf_nodes,
+            waypoint_launch,
         ]
     )
