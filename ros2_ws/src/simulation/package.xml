@@ -19,6 +19,7 @@
   <depend>cv_bridge</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
+  <depend>depth_image_proc</depend>
   <depend>mav_msgs</depend>
 
   <export>
