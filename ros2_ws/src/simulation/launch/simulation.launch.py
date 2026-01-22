@@ -76,6 +76,11 @@ def generate_launch_description():
             PathJoinSubstitution([FindPackageShare("basic_waypoint_pkg"), "launch", "waypoint_mission.launch.py"])
         )
     )
+    mapping_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([FindPackageShare("mapping_pkg"), "launch", "mapping.launch.py"])
+        )
+    )
 
     # Nodes
     simulation_node = Node(
@@ -206,6 +211,7 @@ def generate_launch_description():
         + [
             unity_launch,
             perception_launch,
+            mapping_launch,
             simulation_node,
             state_estimate_corruptor,
             state_estimate_corruptor_disabled,

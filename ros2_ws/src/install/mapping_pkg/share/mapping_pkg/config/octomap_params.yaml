@@ -1,0 +1,13 @@
+octomap_server:
+  ros__parameters:
+    resolution: 0.1
+    frame_id: "world"
+    base_frame_id: "world"
+    height_map: true
+    sensor_model/max_range: 50.0
+    filter_ground: false
+    # These help with visualization and performance
+    pointcloud_min_z: -100.0
+    pointcloud_max_z: 100.0
+    occupancy_min_z: -100.0
+    occupancy_max_z: 100.0
