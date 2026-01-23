@@ -1,5 +1,6 @@
 #include "basic_waypoint_pkg/planner.hpp"
 
+#include <Eigen/src/Geometry/Transform.h>
 #include <utility>
 #include <vector>
 
@@ -12,14 +13,7 @@ BasicPlanner::BasicPlanner(const rclcpp::Node::SharedPtr & node)
   max_a_(0.2),
   max_ang_v_(0.0),
   max_ang_a_(0.0)
-{
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //  To Do: Load Trajectory Parameters from parameter file (ROS2)
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //
-  //
-  // ~~~~ begin solution
-   
+{   
   // declare parameters
   node_->declare_parameter("max_v", max_v_);
   node_->declare_parameter("max_a", max_a_);
@@ -30,8 +24,6 @@ BasicPlanner::BasicPlanner(const rclcpp::Node::SharedPtr & node)
   node_->get_parameter("max_v", max_v_);
   node_->get_parameter("max_a", max_a_);
 
-  // ~~~~ end solution
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
   // Publishers
   pub_markers_ =
@@ -68,8 +60,6 @@ void BasicPlanner::setMaxSpeed(const double max_v)
 // Plans a trajectory from the current position to a goal position and velocity
 // we neglect attitude here for simplicity
 bool BasicPlanner::planTrajectory(
-  const Eigen::VectorXd & goal_pos,
-  const Eigen::VectorXd & goal_vel,
   mav_trajectory_generation::Trajectory * trajectory)
 {
   // 3 Dimensional trajectory => through Cartesian space, no orientation
@@ -90,7 +80,7 @@ bool BasicPlanner::planTrajectory(
   /******* Configure start point *******/
   // set start point constraints to current position and set all derivatives to zero
   start.makeStartOrEnd(
-    current_pose_.translation(),
+    Eigen::Vector3d(-38.02, 10.0, 6.57), //current_pose_.translation(), //TODO: @Domi Fix start
     derivative_to_optimize);
 
   // set start point's velocity to be constrained to current velocity
@@ -103,47 +93,47 @@ bool BasicPlanner::planTrajectory(
 
   /******* Configure trajectory (intermediate waypoints) *******/
   // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //  To Do: Set up trajectory waypoints
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  //
-  // In this section, you need to
-  // - load waypoint definition (pos, vel, acc) per dimension from params
-  // - dynamically set constraints for each (and only where needed)
-  // - push waypoints to vertices
-  //
-  // ~~~~ begin solution
   std::vector<double> waypoint_list;
-  int stop_index_;
+  int stop_index_ = -1;
   
   node_->get_parameter("stop_index", stop_index_);
   node_->get_parameter("waypoints", waypoint_list);
-  
-  for (size_t i = 0; i < waypoint_list.size(); i += 3) {
-      mav_trajectory_generation::Vertex middle(dimension);
 
-      Eigen::Vector3d pos;
-      pos << waypoint_list[i],
-            waypoint_list[i + 1],
-            waypoint_list[i + 2];
+  if (waypoint_list.size() < 3 || (waypoint_list.size() % 3) != 0) {
+    RCLCPP_ERROR(node_->get_logger(), "Invalid waypoints param (size=%zu)", waypoint_list.size());
+    return false;
+  }
 
+  const size_t waypoint_count = waypoint_list.size() / 3;
+  for (size_t i = 0; i + 1 < waypoint_count; ++i) {
+    mav_trajectory_generation::Vertex middle(dimension);
+
+    Eigen::Vector3d pos;
+    pos << waypoint_list[i * 3],
+      waypoint_list[i * 3 + 1],
+      waypoint_list[i * 3 + 2];
+
+    middle.addConstraint(
+      mav_trajectory_generation::derivative_order::POSITION, pos);
+
+    if (static_cast<int>(i) == stop_index_) {
       middle.addConstraint(
-        mav_trajectory_generation::derivative_order::POSITION, pos);
+        mav_trajectory_generation::derivative_order::VELOCITY,
+        Eigen::Vector3d::Zero());
+      middle.addConstraint(
+        mav_trajectory_generation::derivative_order::ACCELERATION,
+        Eigen::Vector3d::Zero());
+    }
 
-    if (static_cast<int>(i / 3) == stop_index_) {
-        middle.addConstraint(
-          mav_trajectory_generation::derivative_order::VELOCITY,
-          Eigen::Vector3d::Zero());
-        middle.addConstraint(
-          mav_trajectory_generation::derivative_order::ACCELERATION,
-          Eigen::Vector3d::Zero());
+    vertices.push_back(middle);
   }
-
-  vertices.push_back(middle);
-  }
-  // ~~~~ end solution
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
   /******* Configure end point *******/
+  Eigen::Vector3d goal_pos;
+  goal_pos << waypoint_list[(waypoint_count - 1) * 3],
+    waypoint_list[(waypoint_count - 1) * 3 + 1],
+    waypoint_list[(waypoint_count - 1) * 3 + 2];
+
   // set end point constraints to desired position and set all derivatives to zero
   end.makeStartOrEnd(
     goal_pos,
@@ -152,7 +142,13 @@ bool BasicPlanner::planTrajectory(
   // set end point's velocity to be constrained to desired velocity
   end.addConstraint(
     mav_trajectory_generation::derivative_order::VELOCITY,
-    goal_vel);
+    Eigen::Vector3d::Zero());
+
+  if (stop_index_ == static_cast<int>(waypoint_count - 1)) {
+    end.addConstraint(
+      mav_trajectory_generation::derivative_order::ACCELERATION,
+      Eigen::Vector3d::Zero());
+  }
 
   // add waypoint to list
   vertices.push_back(end);
@@ -189,8 +185,6 @@ bool BasicPlanner::planTrajectory(
 
 // Overload using explicit start state and limits (currently just a stub, same as above)
 bool BasicPlanner::planTrajectory(
-  const Eigen::VectorXd & goal_pos,
-  const Eigen::VectorXd & goal_vel,
   const Eigen::VectorXd & start_pos,
   const Eigen::VectorXd & start_vel,
   double v_max, double a_max,
@@ -201,7 +195,7 @@ bool BasicPlanner::planTrajectory(
   (void)start_vel;
   (void)v_max;
   (void)a_max;
-  return planTrajectory(goal_pos, goal_vel, trajectory);
+  return planTrajectory(trajectory);
 }
 
 bool BasicPlanner::publishTrajectory(
