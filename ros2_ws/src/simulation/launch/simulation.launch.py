@@ -8,7 +8,6 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.substitutions import PathJoinSubstitution
-import os
 
 
 def generate_launch_description():
@@ -25,8 +24,8 @@ def generate_launch_description():
     controller_config_file = LaunchConfiguration("controller_config_file")
 
     # Declare args
-    controller_config_source = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "controller_pkg", "config", "controller_params.yaml")
+    controller_config_source = PathJoinSubstitution(
+        [FindPackageShare("controller_pkg"), "config", "controller_params.yaml"]
     )
 
     declared_args = [
