@@ -247,9 +247,465 @@ flowchart LR
 
 ```
 
+V2
 
+
+```mermaid
+flowchart LR
+  %% --- Packages ---
+  subgraph basic_waypoint_pkg
+    planner[basic_waypoint_node]
+  end
+
+  subgraph mav_trajectory_generation
+    sampler[trajectory_sampler_node]
+  end
+
+  subgraph controller_pkg
+    controller[controller_node]
+  end
+
+  subgraph state_machine_pkg
+    sm[state_machine_node]
+  end
+
+  subgraph perception_pkg
+    det[lantern_detector]
+    mapper[voxel_mapper]
+  end
+
+  subgraph simulation
+    unity_state[unity_state]
+    unity_ros[unity_ros]
+    corruptor[state_estimate_corruptor_node]
+    w_to_unity[w_to_unity]
+    unity_sim[(Unity sim)]
+  end
+
+  %% --- Core control loop ---
+  unity_state -- "/current_state" --> planner
+  unity_state -- "/current_state" --> controller
+  planner -- "/trajectory" --> sampler
+  sampler -- "/command/trajectory" --> controller
+  controller -- "/rotor_speed_cmds" --> w_to_unity
+  w_to_unity -. "UDP 12346" .-> unity_sim
+  unity_sim -. "TCP 12347" .-> unity_state
+
+  %% --- Sensor stream + state corruption ---
+  unity_ros -- "/true_pose" --> corruptor
+  unity_ros -- "/true_twist" --> corruptor
+  corruptor -- "/pose_est" --> pose_est_topic[(Pose Estimation Topics)]
+  corruptor -- "/twist_est" --> twist_est_topic[(Twist Estimation Topics)]
+  corruptor -- "/current_state_est" --> state_est_topic[(Odometry Estimate)]
+
+  %% --- Unity sensor topics (remapped) ---
+  unity_ros -- "/realsense/rgb/left_image_raw" --> cam_left[(Camera Topics)]
+  unity_ros -- "/realsense/rgb/right_image_raw" --> cam_right[(Camera Topics)]
+  unity_ros -- "/realsense/depth/image" --> depth[(Depth Topics)]
+  unity_ros -- "/interpolate_imu/imu" --> imu[(IMU Topic)]
+
+  %% --- State machine integration ---
+  state_est_topic --> sm
+  depth --> mapper
+  cam_left --> det
+  cam_right --> det
+
+  mapper -- "/map_ready" --> sm
+  det -- "/lantern_detections" --> sm
+  sm -- "/goal_pose" --> planner
+  sm -. "/mission_mode" .-> controller
+
+```
+
+V3
+
+```mermaid
+flowchart LR
+  %% --- Packages ---
+  subgraph basic_waypoint_pkg
+    planner[basic_waypoint_node]
+  end
+
+  subgraph exploration_pkg
+    frontier[frontier_explorer]
+    wpgen[waypoint_generator]
+  end
+
+  subgraph perception_pkg
+    det[lantern_detector]
+    mapper[voxel_mapper]
+  end
+
+  subgraph trajectory_pkg
+    sampler[trajectory_sampler_node]
+  end
+
+  subgraph controller_pkg
+    controller[controller_node]
+  end
+
+  subgraph simulation
+    unity_state[unity_state]
+    unity_ros[unity_ros]
+    corruptor[state_estimate_corruptor_node]
+    w_to_unity[w_to_unity]
+    unity_sim[(Unity sim)]
+  end
+
+  %% --- Core control loop ---
+  unity_state -- "/current_state" --> planner
+  unity_state -- "/current_state" --> controller
+  planner -- "/trajectory" --> controller
+  controller -- "/rotor_speed_cmds" --> w_to_unity
+  w_to_unity -. "UDP 12346" .-> unity_sim
+  unity_sim -. "TCP 12347" .-> unity_state
+
+  %% --- Optional trajectory sampling ---
+  planner -. "/trajectory" .-> sampler
+  sampler -. "/command/trajectory" .-> controller
+
+  %% --- Sensor stream + state corruption ---
+  unity_ros -- "/true_pose" --> corruptor
+  unity_ros -- "/true_twist" --> corruptor
+  corruptor -- "/pose_est" --> pose_est_topic[(Pose Estimation Topics)]
+  corruptor -- "/twist_est" --> twist_est_topic[(Twist Estimation Topics)]
+  corruptor -- "/current_state_est" --> state_est_topic[(Odometry Estimate)]
+
+  %% --- Unity sensor topics (remapped) ---
+  unity_ros -- "/realsense/rgb/left_image_raw" --> cam_left[(Camera Topics)]
+  unity_ros -- "/realsense/rgb/right_image_raw" --> cam_right[(Camera Topics)]
+  unity_ros -- "/realsense/depth/image" --> depth[(Depth Topics)]
+  unity_ros -- "/interpolate_imu/imu" --> imu[(IMU Topic)]
+
+  %% --- Perception + exploration ---
+  depth --> mapper
+  cam_left --> det
+  cam_right --> det
+  state_est_topic --> frontier
+  mapper -- "/occupancy_grid" --> frontier
+  frontier -- "/next_frontier" --> wpgen
+  wpgen -- "/goal_pose" --> planner
+  det -- "/lantern_detections" --> wpgen
+
+```
+
+V4
+
+```mermaid
+flowchart LR
+  %% --- Packages ---
+  subgraph state_machine_pkg
+    sm[state_machine_node]
+  end
+
+  subgraph basic_waypoint_pkg
+    planner[basic_waypoint_node]
+  end
+
+  subgraph exploration_pkg
+    frontier[frontier_explorer]
+    wpgen[waypoint_generator]
+  end
+
+  subgraph perception_pkg
+    det[lantern_detector]
+    mapper[voxel_mapper]
+  end
+
+  subgraph trajectory_pkg
+    sampler[trajectory_sampler_node]
+  end
+
+  subgraph controller_pkg
+    controller[controller_node]
+  end
+
+  subgraph simulation
+    unity_state[unity_state]
+    unity_ros[unity_ros]
+    corruptor[state_estimate_corruptor_node]
+    w_to_unity[w_to_unity]
+    unity_sim[(Unity sim)]
+  end
+
+  %% --- Core control loop ---
+  unity_state -- "/current_state" --> planner
+  unity_state -- "/current_state" --> controller
+  planner -- "/trajectory" --> controller
+  controller -- "/rotor_speed_cmds" --> w_to_unity
+  w_to_unity -. "UDP 12346" .-> unity_sim
+  unity_sim -. "TCP 12347" .-> unity_state
+
+  %% --- Optional trajectory sampling (if used) ---
+  planner -. "/trajectory" .-> sampler
+  sampler -. "/command/trajectory" .-> controller
+
+  %% --- Sensor stream + state corruption ---
+  unity_ros -- "/true_pose" --> corruptor
+  unity_ros -- "/true_twist" --> corruptor
+  corruptor -- "/pose_est" --> pose_est_topic[(Pose Estimation Topics)]
+  corruptor -- "/twist_est" --> twist_est_topic[(Twist Estimation Topics)]
+  corruptor -- "/current_state_est" --> state_est_topic[(Odometry Estimate)]
+
+  %% --- Unity sensor topics (remapped) ---
+  unity_ros -- "/realsense/rgb/left_image_raw" --> cam_left[(Camera Topics)]
+  unity_ros -- "/realsense/rgb/right_image_raw" --> cam_right[(Camera Topics)]
+  unity_ros -- "/realsense/depth/image" --> depth[(Depth Topics)]
+  unity_ros -- "/interpolate_imu/imu" --> imu[(IMU Topic)]
+
+  %% --- Perception + mapping ---
+  depth --> mapper
+  cam_left --> det
+  cam_right --> det
+
+  %% --- Exploration + waypointing ---
+  state_est_topic --> frontier
+  mapper -- "/occupancy_grid" --> frontier
+  frontier -- "/next_frontier" --> wpgen
+  det -- "/lantern_detections" --> wpgen
+  wpgen -- "/goal_pose" --> planner
+
+  %% --- State machine orchestration ---
+  state_est_topic --> sm
+  det -- "/lantern_detections" --> sm
+  mapper -- "/map_ready" --> sm
+  sm -- "/mission_state" --> wpgen
+  sm -- "/mission_state" --> planner
+  sm -. "/arm_takeoff_land" .-> controller
+
+```
 
 </details>
+
+### 2.2.1 Statemachine
+
+```mermaid
+stateDiagram-v2
+  [*] --> INIT
+
+  INIT: warte auf /current_state (Odometry)
+  INIT --> TAKEOFF: odom available
+
+  TAKEOFF: Quelle=WAYPOINTS\n(Takeoff/hover trajectory)\n(optional Pose/Height check)
+  TAKEOFF --> GOTO_ENTRANCE: takeoff done OR timeout
+
+  GOTO_ENTRANCE: Quelle=WAYPOINTS\npredefined waypoints\nbis Höhleneingang
+  GOTO_ENTRANCE --> WAIT_MAP_READY: entrance reached OR timeout
+
+  WAIT_MAP_READY: Quelle=AUTONOMY\ncall /map/is_ready
+  WAIT_MAP_READY --> PLAN_PATH: map ready OR timeout fallback
+
+  PLAN_PATH: publish /mission/goal\ncall /planning/plan_path (GetPlan)
+  PLAN_PATH --> PLAN_TRAJ: path returned (non-empty)
+  PLAN_PATH --> ABORT: no path + timeout
+
+  PLAN_TRAJ: call /trajectory/plan_from_path (Trigger)
+  PLAN_TRAJ --> TRACK: trajectory READY
+  PLAN_TRAJ --> PLAN_PATH: traj failed OR timeout
+
+  TRACK: follow autonomy trajectory\n(replan trigger)\n(goal reached -> land)
+  TRACK --> PLAN_PATH: replan needed OR periodic replanning
+  TRACK --> LAND: goal reached
+
+  LAND: Quelle=WAYPOINTS\nlanding sequence OR autonomy landing traj
+  LAND --> DONE: landed OR timeout
+
+  ABORT: failsafe hover/land
+  ABORT --> LAND: attempt safe landing
+  DONE --> [*]
+```
+
+```mermaid
+flowchart LR
+
+  %% -------------------------
+  %% Legend
+  %% -------------------------
+  subgraph LEGEND["Legende"]
+    L1["Topic"]:::topic
+    L2["Service"]:::service
+    L3["Node"]:::node
+    L4["Package"]:::pkg
+  end
+
+  classDef pkg fill:#f6f6f6,stroke:#999,stroke-width:1px;
+  classDef node fill:#ffffff,stroke:#333,stroke-width:1px;
+  classDef topic fill:#e8f3ff,stroke:#1b66c9,stroke-width:1px;
+  classDef service fill:#fff0e6,stroke:#d26a00,stroke-width:1px;
+
+  %% =========================
+  %% Simulation / Bridge
+  %% =========================
+  subgraph P_SIM["simulation_bridge_pkg"]
+    N_SIM["simulation_bridge_node"]:::node
+  end
+  class P_SIM pkg;
+
+  T_ODOM["/current_state\nnav_msgs/Odometry"]:::topic
+  T_DEPTH["/realsense/depth/image\nsensor_msgs/Image"]:::topic
+  T_CINFO["/realsense/depth/camera_info\nsensor_msgs/CameraInfo"]:::topic
+  T_ACT["/rotor_speed_cmds\nmav_msgs/Actuators"]:::topic
+
+  N_SIM --> T_ODOM
+  N_SIM --> T_DEPTH
+  N_SIM --> T_CINFO
+  T_ACT --> N_SIM
+
+  %% =========================
+  %% Perception: depth -> cloud
+  %% =========================
+  subgraph P_PER["perception_pkg (depth_image_proc)"]
+    N_D2C["depth_to_cloud_node"]:::node
+  end
+  class P_PER pkg;
+
+  T_PCL["/perception/depth/points\nsensor_msgs/PointCloud2"]:::topic
+
+  T_DEPTH --> N_D2C
+  T_CINFO --> N_D2C
+  N_D2C --> T_PCL
+
+  %% =========================
+  %% Mapping: OctoMap
+  %% =========================
+  subgraph P_MAP["octomap_mapping_pkg"]
+    N_MAP["octomap_mapping_node"]:::node
+  end
+  class P_MAP pkg;
+
+  T_OCTO["/map/octomap_binary\noctomap_msgs/Octomap"]:::topic
+  T_OCTO_FULL["/map/octomap_full (optional)\noctomap_msgs/Octomap"]:::topic
+  T_MAPVIS["/map/occupied_cells_vis (optional)\nMarkerArray"]:::topic
+
+  S_MAP_READY["/map/is_ready\nstd_srvs/Trigger"]:::service
+  S_MAP_RESET["/map/reset\nstd_srvs/Empty"]:::service
+
+  T_PCL --> N_MAP
+  N_MAP --> T_OCTO
+  N_MAP --> T_OCTO_FULL
+  N_MAP --> T_MAPVIS
+  N_MAP --- S_MAP_READY
+  N_MAP --- S_MAP_RESET
+
+  %% =========================
+  %% Path Planning: A* on OctoMap
+  %% =========================
+  subgraph P_PLAN["path_planner_pkg"]
+    N_ASTAR["path_planner_astar_octomap_node"]:::node
+  end
+  class P_PLAN pkg;
+
+  S_GETPLAN["/planning/plan_path\nnav_msgs/GetPlan"]:::service
+  T_PATH["/planning/path\nnav_msgs/Path"]:::topic
+  T_PSTATUS["/planning/status\nstd_msgs/String"]:::topic
+
+  T_OCTO --> N_ASTAR
+  T_ODOM --> N_ASTAR
+  N_ASTAR --- S_GETPLAN
+  N_ASTAR --> T_PATH
+  N_ASTAR --> T_PSTATUS
+
+  %% =========================
+  %% Trajectory Planning: mav_trajectory_generation
+  %% =========================
+  subgraph P_TRAJPLAN["trajectory_planner_pkg"]
+    N_TRAJPLAN["path_trajectory_planner_node"]:::node
+  end
+  class P_TRAJPLAN pkg;
+
+  S_PLANTRAJ["/trajectory/plan_from_path\nstd_srvs/Trigger"]:::service
+  T_TSTATUS["/trajectory/status\nstd_msgs/String"]:::topic
+  T_TRAJ_AUTO["/trajectory_autonomy\nmav_planning_msgs/PolynomialTrajectory4D"]:::topic
+  T_TRAJ_AUTO_MARK["/trajectory_markers_autonomy (optional)\nMarkerArray"]:::topic
+
+  T_PATH --> N_TRAJPLAN
+  N_TRAJPLAN --- S_PLANTRAJ
+  N_TRAJPLAN --> T_TRAJ_AUTO
+  N_TRAJPLAN --> T_TSTATUS
+  N_TRAJPLAN --> T_TRAJ_AUTO_MARK
+
+  %% =========================
+  %% Waypoint Planner (existing)
+  %% =========================
+  subgraph P_WP["basic_waypoint_pkg"]
+    N_WP["basic_waypoint_node (BasicPlanner)"]:::node
+  end
+  class P_WP pkg;
+
+  T_TRAJ_WP["/trajectory_waypoints\nmav_planning_msgs/PolynomialTrajectory4D"]:::topic
+  T_WP_MARK["/trajectory_markers (optional)\nMarkerArray"]:::topic
+
+  T_ODOM --> N_WP
+  N_WP --> T_TRAJ_WP
+  N_WP --> T_WP_MARK
+
+  %% =========================
+  %% Trajectory Mux
+  %% =========================
+  subgraph P_MUX["trajectory_mux_pkg"]
+    N_MUX["trajectory_mux_node"]:::node
+  end
+  class P_MUX pkg;
+
+  T_SRC["/mission/trajectory_source\nstd_msgs/String (WAYPOINTS|AUTONOMY)"]:::topic
+  T_TRAJ["/trajectory\nmav_planning_msgs/PolynomialTrajectory4D"]:::topic
+
+  T_TRAJ_WP --> N_MUX
+  T_TRAJ_AUTO --> N_MUX
+  T_SRC --> N_MUX
+  N_MUX --> T_TRAJ
+
+  %% =========================
+  %% Trajectory Sampler
+  %% =========================
+  subgraph P_SAMPLER["trajectory_sampler_pkg"]
+    N_SAMPLER["trajectory_sampler_node"]:::node
+  end
+  class P_SAMPLER pkg;
+
+  T_CMD["/command/trajectory\ntrajectory_msgs/MultiDOFJointTrajectory"]:::topic
+  T_TRACK["/tracking/status (recommended)\nstd_msgs/String"]:::topic
+
+  T_TRAJ --> N_SAMPLER
+  N_SAMPLER --> T_CMD
+  N_SAMPLER --> T_TRACK
+
+  %% =========================
+  %% Controller
+  %% =========================
+  subgraph P_CTRL["controller_pkg"]
+    N_CTRL["controller_node"]:::node
+  end
+  class P_CTRL pkg;
+
+  T_CMD --> N_CTRL
+  T_ODOM --> N_CTRL
+  N_CTRL --> T_ACT
+
+  %% =========================
+  %% Mission Manager / State Machine
+  %% =========================
+  subgraph P_MM["mission_manager_pkg"]
+    N_MM["mission_manager_node (State Machine)"]:::node
+  end
+  class P_MM pkg;
+
+  T_GOAL["/mission/goal\ngeometry_msgs/PoseStamped"]:::topic
+  T_MODE["/mission/mode\nstd_msgs/String"]:::topic
+
+  T_ODOM --> N_MM
+  T_TRACK --> N_MM
+  N_MM --> T_SRC
+  N_MM --> T_GOAL
+  N_MM --> T_MODE
+
+  N_MM --- S_MAP_READY
+  N_MM --- S_GETPLAN
+  N_MM --- S_PLANTRAJ
+
+  T_GOAL --> N_ASTAR
+
+```
 
 ### 2.2.2 Ros2-Packages
 
