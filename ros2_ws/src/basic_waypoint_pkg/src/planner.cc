@@ -80,7 +80,8 @@ bool BasicPlanner::planTrajectory(
   /******* Configure start point *******/
   // set start point constraints to current position and set all derivatives to zero
   start.makeStartOrEnd(
-    Eigen::Vector3d(-38.02, 10.0, 6.57), //current_pose_.translation(), //TODO: @Domi Fix start
+    Eigen::Vector3d(-38.02, 10.0, 6.57),
+    //current_pose_.translation(), //TODO: adjust this maybe
     derivative_to_optimize);
 
   // set start point's velocity to be constrained to current velocity
