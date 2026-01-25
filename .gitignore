@@ -2,23 +2,8 @@ ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
 
-<<<<<<< HEAD
-# ROS2 artifacts
-ros2_ws/build/
-ros2_ws/install/
-ros2_ws/log/
-ros2_ws/.cache/
-=======
 # IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# Python
-__pycache__/
-*.pyc
-
-# Unity / Simulation artifacts (if applicable)
-*.log
->>>>>>> 6ae5fde (gitignore)
