@@ -185,7 +185,7 @@ def generate_launch_description():
             name="camera_to_body",
             arguments=[
                 "--x", "0", "--y", "0", "--z", "0",
-                "--yaw", "0", "--pitch", "0", "--roll", "0", #TODO: Check if camera still 180 deg wrong in yaw
+                "--yaw", "0", "--pitch", "0", "--roll", "1.5708", # Apply 90 deg roll for optical frame
                 "--frame-id", "true_body",
                 "--child-frame-id", "camera"
             ],
@@ -197,7 +197,7 @@ def generate_launch_description():
             name="depth_camera_to_body",
             arguments=[
                 "--x", "0", "--y", "0", "--z", "0",
-                "--yaw", "0", "--pitch", "0", "--roll", "0", #TODO: Check if camera still 180 deg wrong in yaw
+                "--yaw", "-1.5708", "--pitch", "0", "--roll", "-1.5708", # Apply 90 deg roll for optical frame
                 "--frame-id", "true_body",
                 "--child-frame-id", "depth_camera"
             ],
