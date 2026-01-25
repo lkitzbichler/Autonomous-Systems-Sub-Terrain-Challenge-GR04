@@ -79,7 +79,7 @@ void ControllerNode::onDesiredState(const trajectory_msgs::msg::MultiDOFJointTra
   q.normalize();
   
   // desired yaw
-  this->yawd = tf2::getYaw(tf2::Quaternion(q.x(), q.y(), q.z(), q.w()));
+  this->yawd = PI + tf2::getYaw(tf2::Quaternion(q.x(), q.y(), q.z(), q.w()));
 }
 
 void ControllerNode::onCurrentState(const nav_msgs::msg::Odometry::SharedPtr cur_state_msg){
