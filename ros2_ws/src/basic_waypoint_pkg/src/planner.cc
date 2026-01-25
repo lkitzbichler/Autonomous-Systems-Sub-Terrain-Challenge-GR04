@@ -37,7 +37,7 @@ BasicPlanner::BasicPlanner(const rclcpp::Node::SharedPtr & node)
   // Subscriber for Odometry
   sub_odom_ =
     node_->create_subscription<nav_msgs::msg::Odometry>(
-      "current_state", 10,
+      "current_state_est", 10,
       std::bind(&BasicPlanner::uavOdomCallback, this, std::placeholders::_1));
 }
 
@@ -80,8 +80,8 @@ bool BasicPlanner::planTrajectory(
   /******* Configure start point *******/
   // set start point constraints to current position and set all derivatives to zero
   start.makeStartOrEnd(
-    Eigen::Vector3d(-38.02, 10.0, 6.57),
-    //current_pose_.translation(), //TODO: adjust this maybe
+    // Eigen::Vector3d(-38.02, 10.0, 6.57),
+    current_pose_.translation(), //TODO: adjust this maybe
     derivative_to_optimize);
 
   // set start point's velocity to be constrained to current velocity
