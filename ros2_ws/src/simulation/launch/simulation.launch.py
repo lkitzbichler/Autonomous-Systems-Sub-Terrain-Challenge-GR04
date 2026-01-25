@@ -76,6 +76,12 @@ def generate_launch_description():
         )
     )
 
+    statemachine_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([FindPackageShare("statemachine_pkg"), "launch", "statemachine.launch.py"])
+        )
+    )
+
     # Nodes
     simulation_node = Node(
         package="simulation",
@@ -203,6 +209,7 @@ def generate_launch_description():
     return LaunchDescription(
         declared_args
         + [
+            statemachine_launch,
             unity_launch,
             perception_launch,
             simulation_node,

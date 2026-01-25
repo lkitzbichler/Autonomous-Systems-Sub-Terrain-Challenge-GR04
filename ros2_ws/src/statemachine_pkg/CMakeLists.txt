@@ -11,6 +11,21 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
+add_executable(state_machine_node
+  src/statemachine.cpp
+)
+
+ament_target_dependencies(state_machine_node
+  rclcpp
+  std_msgs
+  geometry_msgs
+)
+
+install(TARGETS
+  state_machine_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
