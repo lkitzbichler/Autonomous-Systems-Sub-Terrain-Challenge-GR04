@@ -8,7 +8,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.substitutions import PathJoinSubstitution
-
+import math
 
 def generate_launch_description():
     # Launch configs (ROS1 <arg> equivalents)
@@ -185,7 +185,7 @@ def generate_launch_description():
             name="camera_to_body",
             arguments=[
                 "--x", "0", "--y", "0", "--z", "0",
-                "--yaw", "0", "--pitch", "0", "--roll", "0",
+                "--yaw", "0", "--pitch", "0", "--roll", "0", #TODO: Check if camera still 180 deg wrong in yaw
                 "--frame-id", "true_body",
                 "--child-frame-id", "camera"
             ],
@@ -197,7 +197,7 @@ def generate_launch_description():
             name="depth_camera_to_body",
             arguments=[
                 "--x", "0", "--y", "0", "--z", "0",
-                "--yaw", "0", "--pitch", "0", "--roll", "0",
+                "--yaw", "0", "--pitch", "0", "--roll", "0", #TODO: Check if camera still 180 deg wrong in yaw
                 "--frame-id", "true_body",
                 "--child-frame-id", "depth_camera"
             ],
