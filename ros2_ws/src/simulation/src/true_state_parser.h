@@ -67,9 +67,9 @@ public:
     twist_msg.twist.linear.y = vz;
     twist_msg.twist.linear.z = vy;
 
-    twist_msg.twist.angular.x = rx;
-    twist_msg.twist.angular.y = rz;
-    twist_msg.twist.angular.z = ry;
+    twist_msg.twist.angular.x = -rx;
+    twist_msg.twist.angular.y = -rz;
+    twist_msg.twist.angular.z = -ry;
 
     pose_publishers_[header.name]->publish(pose_msg);
     twist_publishers_[header.name]->publish(twist_msg);
