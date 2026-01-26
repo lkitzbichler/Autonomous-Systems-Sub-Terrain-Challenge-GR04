@@ -157,7 +157,7 @@ When willing to run the simulation and rest, run:
 ## 2.2 Structure Planning
 
 <details>
-<summary>Trajectory Assignmanet Plan</summary>
+<summary>Trajectory Assignment Plan</summary>
 
 ```mermaid
 flowchart LR
@@ -211,49 +211,120 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  %% Given Packages
-  subgraph mav_msgs
-    note1[pure UAV controll message type definition]
+
+  %% Layout: top row (left -> right)
+  subgraph top_row[ ]
+    direction LR
+
+    subgraph statemachine_pkg
+      state_machine[state_machine_node]
+    end
+
+    subgraph detection_pkg
+      detector[detector_node]
+    end
+
+    subgraph mapping_pkg
+      octomap_server["octomap_server (octomap_server_node)"]
+    end
+
+    subgraph path_planning_pkg
+      path_planner["path_planner (pathplanner_node)"]
+    end
+
+    subgraph basic_waypoint_pkg
+      planner["planner (basic_waypoint_node)"]
+    end
+
+    subgraph mav_trajectory_generation
+      sampler[trajectory_sampler_node]
+    end
+
+    subgraph controller_pkg
+      controller[controller_node]
+    end
   end
 
-  subgraph mav_planning_msgs
-    note2[pure trajectory, waypoint and marker message type definitions]
+  %% Layout: bottom row
+  subgraph bottom_row[ ]
+    direction LR
+
+    subgraph simulation
+      unity_ros[unity_ros]
+      unity_state[unity_state]
+      w_to_unity[w_to_unity]
+      state_estimate_corruptor[state_estimate_corruptor_node]
+      sim_exec["Simulation (Simulation.x86_64)"]
+    end
+
+    %% Given Packages
+    subgraph mav_msgs
+      note1[pure UAV controll message type definition]
+    end
+
+    subgraph mav_planning_msgs
+      note2[pure trajectory, waypoint and marker message type definitions]
+    end
+
+    subgraph unused_topics
+      unused[(Unused/Visualization Topics)]
+    end
   end
 
-  subgraph simulation
-    unity_ros[unity_ros]
-    unity_state[unity_state]
-    w_to_unity[w_to_unity]
-    state_estimate_corruptor[state_estimate_corruptor_node]
-    sim_exec["Simulation (Simulation.x86_64)"]
-  end
+  %% Connections (topics from statemachine)
+  state_machine -- "statemachine/cmd/basic_waypoint (std_msgs/UInt8)" --> planner
+  planner -- "basic_waypoint/done (std_msgs/Bool)" --> state_machine
 
-  %% Extern Packages
-  
-  subgraph mav_trajectory_generation
-    sampler[trajectory_sampler_node]
-  end
+  state_machine -- "statemachine/cmd/path_planning (std_msgs/UInt8)" --> path_planner
+  path_planner -- "path_planning/ready (std_msgs/Bool)" --> state_machine
+  path_planner -- "path_planning/goal_reached (std_msgs/Bool)" --> state_machine
 
-  %% Own Packages
-  subgraph basic_waypoint_pkg
-    planner["planner (basic_waypoint_node)"]
-  end
+  state_machine -- "statemachine/cmd/mapping (std_msgs/UInt8)" --> octomap_server
+  octomap_server -- "mapping/ready (std_msgs/Bool)" --> state_machine
 
-  subgraph controller_pkg
-    controller[controller_node]
-  end
+  state_machine -- "statemachine/cmd/controller (std_msgs/UInt8)" --> controller
 
-  subgraph statemachine_pkg
-    state_machine[state_machine_node]
-  end
+  state_machine -- "statemachine/lantern_target (geometry_msgs::msg::PoseStamped)" --> detector
+  state_machine -- "statemachine/lanterns (geometry_msgs::msg::PoseArray)" --> detector
+  detector -- "detection/lantern (geometry_msgs::msg::PoseStamped)" --> state_machine
 
-  subgraph mapping_pkg
+  %% Unterbefehle
 
-  end
+  planner -- "trajectory (mav_planning_msgs::msg::PolynomialTrajectory4D)" --> sampler
 
-  subgraph path_planning_pkg
+  path_planner -- "trajectory (mav_planning_msgs::msg::PolynomialTrajectory4D)" --> sampler
 
-  end
+  sampler -- "command/trajectory (trajectory_msgs::msg::MultiDOFJointTrajectory)" --> controller
+
+  %% Weitere Verbindungen (Sensor/State)
+  unity_ros -- "/true_pose (geometry_msgs::msg::PoseStamped)" --> state_estimate_corruptor
+  unity_ros -- "/true_twist (geometry_msgs::msg::TwistStamped)" --> state_estimate_corruptor
+  state_estimate_corruptor -- "/current_state_est (nav_msgs::msg::Odometry)" --> planner
+  unity_state -- "current_state (nav_msgs::msg::Odometry)" --> controller
+  controller -- "rotor_speed_cmds (mav_msgs::msg::Actuators)" --> w_to_unity
+  w_to_unity -. "UDP 12346" .-> sim_exec
+  sim_exec -. "TCP 12347" .-> unity_state
+  sim_exec -. "TCP 9998 (sensor stream)" .-> unity_ros
+  unity_ros -. "TCP 9999 (commands)" .-> sim_exec
+
+  %% Topics not consumed in this repo (visualization/unused here)
+  planner -- "trajectory_markers (visualization_msgs::msg::MarkerArray)" --> unused
+  unity_ros -- "/realsense/rgb/left_image_raw (sensor_msgs::msg::Image)" --> unused
+  unity_ros -- "/realsense/rgb/right_image_raw (sensor_msgs::msg::Image)" --> unused
+  unity_ros -- "/realsense/depth/image (sensor_msgs::msg::Image)" --> unused
+  unity_ros -- "/interpolate_imu/imu (sensor_msgs::msg::Imu)" --> unused
+  state_estimate_corruptor -- "/pose_est (geometry_msgs::msg::PoseStamped)" --> unused
+  state_estimate_corruptor -- "/twist_est (geometry_msgs::msg::TwistStamped)" --> unused
+  state_machine -- "statemachine/state (std_msgs::msg::String)" --> unused
+
+  %% Link styling (GitHub + VSCode Mermaid)
+  %% 0,2,5,7,8,9 = commands from statemachine
+  %% 1,3,4,6,10 = feedback to statemachine
+  linkStyle 0,2,5,7,8,9 stroke:#e53935,stroke-width:2px
+  linkStyle 1,3,4,6,10 stroke:#1e88e5,stroke-width:2px
+  linkStyle 11,12 stroke:#5a00ba,stroke-width:2px
+  linkStyle 13 stroke:#ba0063,stroke-width:2px
+  linkStyle 23,24,25,26,27,28,29,30 stroke:#9e9e9e,stroke-width:1px,stroke-dasharray:4 3
 
 ```
 
