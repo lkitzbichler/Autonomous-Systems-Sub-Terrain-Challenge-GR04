@@ -2,8 +2,8 @@ ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
 
-# ROS2 artifacts
-ros2_ws/build/
-ros2_ws/install/
-ros2_ws/log/
-ros2_ws/.cache/
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
