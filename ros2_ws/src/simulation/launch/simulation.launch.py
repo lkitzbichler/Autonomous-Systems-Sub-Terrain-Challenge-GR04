@@ -80,6 +80,12 @@ def generate_launch_description():
             PathJoinSubstitution([FindPackageShare("mapping_pkg"), "launch", "mapping.launch.py"])
         )
     )
+    path_planning_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([FindPackageShare("path_planning_pkg"), "launch", "pathplanning.launch.py"])
+        )
+    )
+
 
     statemachine_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -218,6 +224,7 @@ def generate_launch_description():
             unity_launch,
             perception_launch,
             mapping_launch,
+            path_planning_launch,
             simulation_node,
             state_estimate_corruptor,
             state_estimate_corruptor_disabled,
