@@ -7,6 +7,8 @@ ROS_WS="${REPO_ROOT}/ros2_ws"
 SIM_SRC="${REPO_ROOT}/simulation"
 SIM_DST="${ROS_WS}/install/simulation/lib/simulation"
 
+sudo apt install ros-jazzy-octomap-server ros-jazzy-pcl-ros ros-jazzy-depth-image-proc libgflags-dev
+
 echo "[1/4] Building colcon workspace..."
 cd "${ROS_WS}"
 colcon build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON

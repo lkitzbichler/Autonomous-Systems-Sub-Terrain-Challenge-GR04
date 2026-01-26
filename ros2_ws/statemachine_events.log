@@ -1,0 +1,6 @@
+0 | state machine started
+0 | State -> WAIT_FOR_SYSTEM (boot complete)
+0 | publish statemachine/cmd/controller -> STOP
+0 | publish statemachine/cmd/basic_waypoint -> STOP
+0 | publish statemachine/cmd/path_planning -> STOP
+0 | publish statemachine/cmd/mapping -> STOP
