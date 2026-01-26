@@ -1,0 +1,4 @@
+path_planner:
+  ros__parameters:
+    use_sim_time: false
+    command_topic: "statemachine/command"
