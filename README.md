@@ -152,6 +152,9 @@ When willing to run the simulation and rest, run:
 
 ## 2.2 Structure Planning
 
+<details>
+<summary>Trajectory Assignmanet Plan</summary>
+
 ```mermaid
 flowchart LR
   %% --- basic_waypoint_pkg ---
@@ -195,10 +198,67 @@ flowchart LR
 
 ```
 
-### 2.2.1 Ros2-Nodes
+</details>
+
+### 2.2.1 Structure Plans
+
+<details>
+<summary>Final Flow Chart</summary>
+
+```mermaid
+flowchart LR
+  %% Given Packages
+  subgraph mav_msgs
+    note1[pure UAV controll message type definition]
+  end
+
+  subgraph mav_planning_msgs
+    note2[pure trajectory, waypoint and marker message type definitions]
+  end
+
+  subgraph simulation
+    unity_ros[unity_ros]
+    unity_state[unity_state]
+    w_to_unity[w_to_unity]
+    state_estimate_corruptor[state_estimate_corruptor_node]
+    sim_exec["Simulation (Simulation.x86_64)"]
+  end
+
+  %% Extern Packages
+  
+  subgraph mav_trajectory_generation
+    sampler[trajectory_sampler_node]
+  end
+
+  %% Own Packages
+  subgraph basic_waypoint_pkg
+    planner["planner (basic_waypoint_node)"]
+  end
+
+  subgraph controller_pkg
+    controller[controller_node]
+  end
+
+  subgraph statemachine_pkg
+    state_machine[state_machine_node]
+  end
+
+  subgraph mapping_pkg
+
+  end
+
+  subgraph path_planning_pkg
+
+  end
+
+```
+
+</details>
 
 <details>
 
+<details>
+<summary>Stand 2026-01-17</summary>
 
 ```mermaid
 flowchart LR
@@ -247,8 +307,10 @@ flowchart LR
 
 ```
 
-V2
+</details>
 
+<details>
+<summary>V2</summary>
 
 ```mermaid
 flowchart LR
@@ -317,7 +379,10 @@ flowchart LR
 
 ```
 
-V3
+</details>
+
+<details>
+<summary>V3</summary>
 
 ```mermaid
 flowchart LR
@@ -389,7 +454,10 @@ flowchart LR
 
 ```
 
-V4
+</details>
+
+<details>
+<summary>V4</summary>
 
 ```mermaid
 flowchart LR
@@ -477,7 +545,14 @@ flowchart LR
 
 </details>
 
-### 2.2.1 Statemachine
+</details>
+
+### 2.2.2 Processes
+
+#### 2.2.2.1 Statemachine
+
+<details>
+<summary>Linear Thoughts</summary>
 
 ```mermaid
 stateDiagram-v2
@@ -514,6 +589,11 @@ stateDiagram-v2
   ABORT --> LAND: attempt safe landing
   DONE --> [*]
 ```
+
+</details>
+
+<details>
+<summary>Place in overall view</summary>
 
 ```mermaid
 flowchart LR
@@ -706,6 +786,8 @@ flowchart LR
   T_GOAL --> N_ASTAR
 
 ```
+
+</details>
 
 ### 2.2.2 Ros2-Packages
 
