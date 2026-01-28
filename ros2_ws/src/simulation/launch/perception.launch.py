@@ -1,16 +1,25 @@
+from os.path import join
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch_ros.actions import ComposableNodeContainer
+from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
 from launch.substitutions import LaunchConfiguration
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 def generate_launch_description():
     depth_image_topic = LaunchConfiguration('depth_image_topic')
     depth_info_topic = LaunchConfiguration('depth_info_topic')
     pointcloud_topic = LaunchConfiguration('pointcloud_topic')
 
+    lantern_detector_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            join(get_package_share_directory('lantern_detector_pkg'), 'launch', 'lantern_detector.launch.py')
+        )
+    )
+
     return LaunchDescription([
-        DeclareLaunchArgument('depth_image_topic', default_value='/realsense/depth/image_rect_raw'),
+        DeclareLaunchArgument('depth_image_topic', default_value='/realsense/depth/image'),
         DeclareLaunchArgument('depth_info_topic', default_value='/realsense/depth/camera_info'),
         DeclareLaunchArgument('pointcloud_topic', default_value='/realsense/depth/points'),
 
@@ -33,4 +42,5 @@ def generate_launch_description():
             ],
             output='screen',
         ),
+        lantern_detector_launch,
     ])
