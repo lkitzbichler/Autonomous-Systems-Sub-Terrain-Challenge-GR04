@@ -170,6 +170,18 @@ def generate_launch_description():
         Node(
             package="tf2_ros",
             executable="static_transform_publisher",
+            name="sim_semantic_camera",
+            arguments=[
+                "--x", "0", "--y", "0", "--z", "0",
+                "--yaw", "0", "--pitch", "0", "--roll", "0",
+                "--frame-id", "depth_camera",
+                "--child-frame-id", "Quadrotor/Sensors/SemanticCamera"
+            ],
+            output="screen",
+        ),
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
             name="sim_right_camera",
             arguments=[
                 "--x", "0", "--y", "0.05", "--z", "0",

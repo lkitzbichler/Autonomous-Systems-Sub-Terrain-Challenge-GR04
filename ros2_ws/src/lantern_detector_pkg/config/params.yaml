@@ -1,0 +1,9 @@
+lantern_detector:
+  ros__parameters:
+    use_sim_time: true
+    depth_topic: "/realsense/depth/image"
+    depth_info_topic: "/realsense/depth/camera_info"
+    semantic_topic: "/Quadrotor/Sensors/SemanticCamera/image_raw"
+    semantic_info_topic: "/Quadrotor/Sensors/SemanticCamera/camera_info"
+    world_frame: "world"
+    camera_frame: "Quadrotor/Sensors/SemanticCamera"
