@@ -1,20 +1,19 @@
 #ifndef LANTERN_DETECTOR_PKG__LANTERN_DETECTOR_NODE_HPP_
 #define LANTERN_DETECTOR_PKG__LANTERN_DETECTOR_NODE_HPP_
 
-#include <memory>
-#include <string>
-#include <vector>
-
+#include <mutex>
+#include <opencv2/opencv.hpp>
 #include "geometry_msgs/msg/pose_array.hpp"
-#include "message_filters/subscriber.h"
-#include "message_filters/sync_policies/approximate_time.hpp"
-#include "message_filters/synchronizer.h"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "visualization_msgs/msg/marker_array.hpp"
+
+#include <message_filters/subscriber.h>
+#include <message_filters/sync_policies/approximate_time.h>
+#include <message_filters/synchronizer.h>
 
 namespace lantern_detector {
 
@@ -28,8 +27,9 @@ public:
   explicit LanternDetectorNode(const rclcpp::NodeOptions& options);
 
 private:
-  void callback(const sensor_msgs::msg::Image::ConstSharedPtr& semantic_msg,
-                const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg);
+  void synchronized_callback(
+      const sensor_msgs::msg::Image::ConstSharedPtr& semantic_msg,
+      const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg);
 
   void update_lanterns(const geometry_msgs::msg::Point& new_pos);
   void publish_lanterns();
@@ -44,18 +44,15 @@ private:
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
-  message_filters::Subscriber<sensor_msgs::msg::Image> sub_semantic_image_;
-  message_filters::Subscriber<sensor_msgs::msg::Image> sub_depth_image_;
+  // Synchronized subscribers
+  std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> sub_semantic_filter_;
+  std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> sub_depth_filter_;
   
-  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_semantic_info_;
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::Image> SyncPolicy;
+  std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
+
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_depth_info_;
-
-  sensor_msgs::msg::CameraInfo::ConstSharedPtr semantic_info_;
   sensor_msgs::msg::CameraInfo::ConstSharedPtr depth_info_;
-
-  using SyncPolicy = message_filters::sync_policies::ApproximateTime<
-      sensor_msgs::msg::Image, sensor_msgs::msg::Image>;
-  std::unique_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
   rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr lantern_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
