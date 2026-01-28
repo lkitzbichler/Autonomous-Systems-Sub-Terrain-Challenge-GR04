@@ -8,39 +8,49 @@ namespace lantern_detector {
 
 LanternDetectorNode::LanternDetectorNode(const rclcpp::NodeOptions& options)
     : Node("lantern_detector", options) {
-  this->declare_parameter("depth_topic", "/realsense/depth/image");
-  this->declare_parameter("depth_info_topic", "/realsense/depth/camera_info");
-  this->declare_parameter("semantic_topic", "/Quadrotor/Sensors/SemanticCamera/image_raw");
-  this->declare_parameter("semantic_info_topic", "/Quadrotor/Sensors/SemanticCamera/camera_info");
-  this->declare_parameter("world_frame", "world");
-  this->declare_parameter("distance_threshold", 2.0);
+  const auto depth_topic = this->declare_parameter("depth_topic", "/realsense/depth/image");
+  const auto depth_info_topic = this->declare_parameter("depth_info_topic", "/realsense/depth/camera_info");
+  const auto semantic_topic = this->declare_parameter("semantic_topic", "/Quadrotor/Sensors/SemanticCamera/image_raw");
+  const auto semantic_info_topic = this->declare_parameter("semantic_info_topic", "/Quadrotor/Sensors/SemanticCamera/camera_info");
+  const auto output_topic = this->declare_parameter("output_topic", "detected_lanterns");
+  const auto marker_topic = this->declare_parameter("marker_topic", "lantern_markers");
 
-  const auto depth_topic = this->get_parameter("depth_topic").as_string();
-  const auto depth_info_topic = this->get_parameter("depth_info_topic").as_string();
-  const auto semantic_topic = this->get_parameter("semantic_topic").as_string();
-  const auto semantic_info_topic = this->get_parameter("semantic_info_topic").as_string();
-  world_frame_ = this->get_parameter("world_frame").as_string();
-  distance_threshold_ = this->get_parameter("distance_threshold").as_double();
+  world_frame_ = this->declare_parameter("world_frame", "world");
+  distance_threshold_ = this->declare_parameter("distance_threshold", 2.0);
+  min_depth_ = this->declare_parameter("min_depth", 0.1);
+  max_depth_ = this->declare_parameter("max_depth", 50.0);
+  marker_scale_ = this->declare_parameter("marker_scale", 0.5);
+  marker_color_ = this->declare_parameter("marker_color", std::vector<double>{1.0, 1.0, 0.0, 1.0});
+
+  const auto sync_queue_size = this->declare_parameter("sync_queue_size", 10);
 
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-  lantern_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("detected_lanterns", 10);
-  marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("lantern_markers", 10);
+  lantern_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>(output_topic, 10);
+  marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(marker_topic, 10);
 
   auto qos = rclcpp::SensorDataQoS().get_rmw_qos_profile();
   sub_semantic_image_.subscribe(this, semantic_topic, qos);
   sub_depth_image_.subscribe(this, depth_topic, qos);
-  sub_semantic_info_.subscribe(this, semantic_info_topic, qos);
+
+  sub_semantic_info_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+      semantic_info_topic, rclcpp::SensorDataQoS(),
+      [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg) { semantic_info_ = msg; });
+  
+  sub_depth_info_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+      depth_info_topic, rclcpp::SensorDataQoS(),
+      [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg) { depth_info_ = msg; });
 
   sync_ = std::make_unique<message_filters::Synchronizer<SyncPolicy>>(
-      SyncPolicy(10), sub_semantic_image_, sub_depth_image_, sub_semantic_info_);
+      SyncPolicy(sync_queue_size), sub_semantic_image_, sub_depth_image_);
   sync_->registerCallback(&LanternDetectorNode::callback, this);
 }
 
 void LanternDetectorNode::callback(const sensor_msgs::msg::Image::ConstSharedPtr& semantic_msg,
-                                   const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg,
-                                   const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info_msg) {
+                                   const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg) {
+  if (!semantic_info_ || !depth_info_) return;
+
   cv::Mat semantic, depth;
   try {
     semantic = cv_bridge::toCvCopy(semantic_msg, "bgr8")->image;
@@ -69,10 +79,11 @@ void LanternDetectorNode::callback(const sensor_msgs::msg::Image::ConstSharedPtr
 
   if (locations.empty()) return;
 
-  const double fx = info_msg->p[0] != 0 ? info_msg->p[0] : info_msg->k[0];
-  const double fy = info_msg->p[5] != 0 ? info_msg->p[5] : info_msg->k[4];
-  const double cx = info_msg->p[2] != 0 ? info_msg->p[2] : info_msg->k[2];
-  const double cy = info_msg->p[6] != 0 ? info_msg->p[6] : info_msg->k[5];
+  // Use depth camera intrinsics to project depth pixels to 3D
+  const double fx = depth_info_->p[0] != 0 ? depth_info_->p[0] : depth_info_->k[0];
+  const double fy = depth_info_->p[5] != 0 ? depth_info_->p[5] : depth_info_->k[4];
+  const double cx = depth_info_->p[2] != 0 ? depth_info_->p[2] : depth_info_->k[2];
+  const double cy = depth_info_->p[6] != 0 ? depth_info_->p[6] : depth_info_->k[5];
 
   if (fx == 0 || fy == 0) return;
 
@@ -80,8 +91,12 @@ void LanternDetectorNode::callback(const sensor_msgs::msg::Image::ConstSharedPtr
   int valid_count{0};
 
   for (const auto& p : locations) {
+    // Assuming depth and semantic images are aligned. 
+    // If not, a mapping from semantic to depth coordinates would be needed here.
+    if (p.x >= static_cast<int>(depth.cols) || p.y >= static_cast<int>(depth.rows)) continue;
+    
     const float d = depth.at<float>(p.y, p.x);
-    if (std::isfinite(d) && d > 0.1f && d < 50.0f) {
+    if (std::isfinite(d) && d > min_depth_ && d < max_depth_) {
       sum_z += d;
       sum_x += (p.x - cx) * d / fx;
       sum_y += (p.y - cy) * d / fy;
@@ -91,14 +106,14 @@ void LanternDetectorNode::callback(const sensor_msgs::msg::Image::ConstSharedPtr
 
   if (valid_count == 0) return;
 
-  geometry_msgs::msg::PointStamped pt_camera;
-  pt_camera.header = semantic_msg->header;
-  pt_camera.point.x = sum_x / valid_count;
-  pt_camera.point.y = sum_y / valid_count;
-  pt_camera.point.z = sum_z / valid_count;
+  geometry_msgs::msg::PointStamped pt_depth_frame;
+  pt_depth_frame.header = depth_msg->header;
+  pt_depth_frame.point.x = sum_x / valid_count;
+  pt_depth_frame.point.y = sum_y / valid_count;
+  pt_depth_frame.point.z = sum_z / valid_count;
 
   try {
-    const auto pt_world = tf_buffer_->transform(pt_camera, world_frame_);
+    const auto pt_world = tf_buffer_->transform(pt_depth_frame, world_frame_);
     update_lanterns(pt_world.point);
     publish_lanterns();
   } catch (const tf2::TransformException& ex) {
@@ -143,10 +158,13 @@ void LanternDetectorNode::publish_lanterns() {
     m.id = i;
     m.type = visualization_msgs::msg::Marker::SPHERE;
     m.pose = pose;
-    m.scale.x = m.scale.y = m.scale.z = 0.5;
-    m.color.r = 1.0;
-    m.color.g = 1.0;
-    m.color.a = 1.0;
+    m.scale.x = m.scale.y = m.scale.z = marker_scale_;
+    if (marker_color_.size() >= 4) {
+      m.color.r = marker_color_[0];
+      m.color.g = marker_color_[1];
+      m.color.b = marker_color_[2];
+      m.color.a = marker_color_[3];
+    }
     markers.markers.push_back(m);
   }
 

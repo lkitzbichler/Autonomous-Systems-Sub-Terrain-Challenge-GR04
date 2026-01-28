@@ -29,24 +29,32 @@ public:
 
 private:
   void callback(const sensor_msgs::msg::Image::ConstSharedPtr& semantic_msg,
-                const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg,
-                const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info_msg);
+                const sensor_msgs::msg::Image::ConstSharedPtr& depth_msg);
 
   void update_lanterns(const geometry_msgs::msg::Point& new_pos);
   void publish_lanterns();
 
   std::string world_frame_;
   double distance_threshold_;
+  double min_depth_;
+  double max_depth_;
+  double marker_scale_;
+  std::vector<double> marker_color_;
 
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
   message_filters::Subscriber<sensor_msgs::msg::Image> sub_semantic_image_;
   message_filters::Subscriber<sensor_msgs::msg::Image> sub_depth_image_;
-  message_filters::Subscriber<sensor_msgs::msg::CameraInfo> sub_semantic_info_;
+  
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_semantic_info_;
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_depth_info_;
+
+  sensor_msgs::msg::CameraInfo::ConstSharedPtr semantic_info_;
+  sensor_msgs::msg::CameraInfo::ConstSharedPtr depth_info_;
 
   using SyncPolicy = message_filters::sync_policies::ApproximateTime<
-      sensor_msgs::msg::Image, sensor_msgs::msg::Image, sensor_msgs::msg::CameraInfo>;
+      sensor_msgs::msg::Image, sensor_msgs::msg::Image>;
   std::unique_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
   rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr lantern_pub_;
