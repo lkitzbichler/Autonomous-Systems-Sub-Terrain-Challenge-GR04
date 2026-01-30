@@ -133,6 +133,13 @@ install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Install simulation runtime assets from repo root into install tree.
+install(
+  DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/../../../simulation/"
+  DESTINATION lib/${PROJECT_NAME}
+  USE_SOURCE_PERMISSIONS
+)
+
 # --- Export and package ------------------------------------------------------
 ament_export_dependencies(
   rclcpp
