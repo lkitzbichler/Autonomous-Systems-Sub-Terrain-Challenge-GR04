@@ -3,6 +3,8 @@
 # ros2_ws/install/**/UnityPlayer.so   filter=lfs diff=lfs merge=lfs -text
 # ros2_ws/install/**/Simulation_Data/** filter=lfs diff=lfs merge=lfs -text
 simulation/Simulation.x86_64 filter=lfs diff=lfs merge=lfs -text
+simulation/Simulation_LQ.x86_64 filter=lfs diff=lfs merge=lfs -text
 simulation/UnityPlayer.so filter=lfs diff=lfs merge=lfs -text
 simulation/Simulation_Data/** filter=lfs diff=lfs merge=lfs -text
+simulation/Simulation_LQ_Data/** filter=lfs diff=lfs merge=lfs -text
 simulation/** filter=lfs diff=lfs merge=lfs -text
