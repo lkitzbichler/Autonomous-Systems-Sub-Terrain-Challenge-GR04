@@ -7,7 +7,13 @@ ROS_WS="${REPO_ROOT}/ros2_ws"
 SIM_SRC="${REPO_ROOT}/simulation"
 SIM_DST="${ROS_WS}/install/simulation/lib/simulation"
 
-sudo apt install ros-jazzy-octomap-server ros-jazzy-pcl-ros ros-jazzy-depth-image-proc libgflags-dev
+echo "[0/4] Updating apt metadata and installing system deps..."
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+  ros-jazzy-octomap-server \
+  ros-jazzy-pcl-ros \
+  ros-jazzy-depth-image-proc \
+  libgflags-dev
 
 echo "[1/4] Building colcon workspace..."
 cd "${ROS_WS}"
