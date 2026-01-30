@@ -7,3 +7,5 @@ ros2_ws/log/
 .idea/
 *.swp
 *.swo
+
+ros2_ws/statemachine_events.log
