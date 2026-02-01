@@ -31,7 +31,6 @@ private:
         TAKEOFF,          // Takeoff from start position
         GOTO_ENTRANCE,    // Use basic_waypoint to reach cave entrance
         EXPLORE,          // Autonomous exploration (path planning)
-        SCAN_LANTERN,     // Pause flight, scan lamp, store pose
         RETURN_HOME,      // Return to exit/home position
         LAND,             // Land and stop
         DONE,             // Mission finished
@@ -109,7 +108,6 @@ private:
     double startup_grace_sec_{5.0};
     double takeoff_duration_sec_{3.0};
     double entrance_timeout_sec_{60.0};
-    double scan_duration_sec_{8.0};
     double return_timeout_sec_{90.0};
     double land_duration_sec_{5.0};
     double mission_time_limit_sec_{0.0};

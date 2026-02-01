@@ -29,7 +29,6 @@ StateMachine::StateMachine()
     startup_grace_sec_ = declare_parameter<double>("startup_grace_sec", 5.0);
     takeoff_duration_sec_ = declare_parameter<double>("takeoff_duration_sec", 3.0);
     entrance_timeout_sec_ = declare_parameter<double>("entrance_timeout_sec", 60.0);
-    scan_duration_sec_ = declare_parameter<double>("scan_duration_sec", 8.0);
     return_timeout_sec_ = declare_parameter<double>("return_timeout_sec", 90.0);
     land_duration_sec_ = declare_parameter<double>("land_duration_sec", 5.0);
     mission_time_limit_sec_ = declare_parameter<double>("mission_time_limit_sec", 0.0);
@@ -187,14 +186,6 @@ void StateMachine::onTimer()
     case MissionState::EXPLORE:
         if (goal_reached_) {
             transitionTo(MissionState::RETURN_HOME, "exploration goal reached");
-        } else if (lantern_pending_) {
-            transitionTo(MissionState::SCAN_LANTERN, "lantern detected");
-        }
-        break;
-    case MissionState::SCAN_LANTERN:
-        if (state_elapsed >= scan_duration_sec_) {
-            lantern_pending_ = false;
-            transitionTo(MissionState::EXPLORE, "scan complete");
         }
         break;
     case MissionState::RETURN_HOME:
@@ -272,17 +263,7 @@ void StateMachine::handleStateEntry(MissionState state)
         logCommand(topic_cmd_path_planning_, Command::START);
         pub_cmd_mapping_->publish(cmd_msg);
         logCommand(topic_cmd_mapping_, Command::START);
-        break;
-    case MissionState::SCAN_LANTERN:
-        cmd_msg.data = static_cast<uint8_t>(Command::HOLD);
-        pub_cmd_controller_->publish(cmd_msg);
-        logCommand(topic_cmd_controller_, Command::HOLD);
-        cmd_msg.data = static_cast<uint8_t>(Command::STOP);
-        pub_cmd_path_planning_->publish(cmd_msg);
-        logCommand(topic_cmd_path_planning_, Command::STOP);
         cmd_msg.data = static_cast<uint8_t>(Command::SCAN);
-        pub_cmd_mapping_->publish(cmd_msg);
-        logCommand(topic_cmd_mapping_, Command::SCAN);
         pub_cmd_lantern_detector_->publish(cmd_msg);
         logCommand(topic_cmd_lantern_detector_, Command::SCAN);
         break;
@@ -636,7 +617,6 @@ std::string StateMachine::toString(MissionState state)
     case MissionState::TAKEOFF: return "TAKEOFF";
     case MissionState::GOTO_ENTRANCE: return "GOTO_ENTRANCE";
     case MissionState::EXPLORE: return "EXPLORE";
-    case MissionState::SCAN_LANTERN: return "SCAN_LANTERN";
     case MissionState::RETURN_HOME: return "RETURN_HOME";
     case MissionState::LAND: return "LAND";
     case MissionState::DONE: return "DONE";

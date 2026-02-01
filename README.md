@@ -7,18 +7,22 @@
   - [1.3 Working Packages](#13-working-packages)
   - [1.4 Project Plan](#14-project-plan)
 - [2. Setup & Structure](#2-setup--structure)
-    - [2.1 Setup Guide](#21-setup-guide)
-      - [2.1.1 Prerequisites](#210-prerequisites)
-      - [2.1.1 Clone Repository](#211-clone-repository)
-      - [2.1.2 Install & Setup VSCode](#212-install--setup-vscode)
-      - [2.1.3 Install missing packages](#213-install-all-missing-packages)
-      - [2.1.4 Install & Setup ROS2 jazzy](#214-install--setup-ros2-jazzy)
-      - [2.1.5 Download & Move Simulation](#215-download--move-simulation)
-      - [2.1.6 Build Code](#216-build-code)
-      - [2.1.7 Run Everything](#217-run-everything)
-    - [2.2 Structure Planning](#22-structure-planning)
-        - [2.2.1 Ros2-Nodes](#221-ros2-nodes)
-        - [2.2.2 Ros2-Packages](#222-ros2-packages)
+  - [2.1 Setup Guide](#21-setup-guide)
+    - [2.1.0 Prerequisites](#210-prerequisites)
+    - [2.1.1 Clone Repository](#211-clone-repository)
+    - [2.1.2 Install & Setup VSCode](#212-install--setup-vscode)
+    - [2.1.3 Install all missing packages](#213-install-all-missing-packages)
+    - [2.1.4 Install & Setup ROS2 jazzy](#214-install--setup-ros2-jazzy)
+    - [2.1.5 Download & Move Simulation](#215-download--move-simulation)
+    - [2.1.6 Build Code](#216-build-code)
+    - [2.1.7 Run Everything](#217-run-everything)
+  - [2.2 Structure](#22-structure)
+    - [2.2.1 Flow Chart](#221-flow-chart)
+    - [2.2.2 Process Analysis](#222-process-analysis)
+      - [2.2.2.1 Statemachine](#2221-statemachine)
+    - [2.2.2 Thinking](#222-thinking)
+      - [Ideas](#ideas)
+      - [Overall Process Flow](#overall-process-flow)
 - [3. Methodology](#3-methodology)
 - [4. Results](#4-results)
 - [Literature](#literature)
@@ -348,6 +352,121 @@ flowchart LR
 
 #### 2.2.2.1 Statemachine
 
+##### Sequence Diagram
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SM as state_machine_node
+    participant BP as basic_waypoint_node
+    participant PP as pathplanner_node
+    participant TS as trajectory_sampler_node
+    participant CTRL as controller_node
+    participant MAP as octomap_server
+    participant DET as lantern_detector
+    participant UROS as unity_ros
+    participant UST as unity_state
+    participant SEC as state_estimate_corruptor
+    participant W2U as w_to_unity
+    participant SIM as Simulation.x86_64
+
+    Note over CTRL: läuft dauerhaft (always-on)
+    Note over MAP: läuft dauerhaft (always-on)
+    Note over DET: läuft dauerhaft (always-on)
+
+    %% Simulation data streams
+    SIM-->>UROS: TCP 9998 (sensor stream)
+    UROS-->>SEC: /true_pose (PoseStamped)
+    UROS-->>SEC: /true_twist (TwistStamped)
+    SIM-->>UST: TCP 12347
+    UST-->>CTRL: current_state_est (Odometry)
+    SEC-->>BP: /current_state_est (Odometry)
+
+    %% Commands from statemachine
+    SM->>CTRL: cmd/controller (UInt8)
+    SM->>MAP: cmd/mapping (UInt8)
+    SM->>DET: cmd/lantern_detector (UInt8)
+    SM->>BP: cmd/basic_waypoint (UInt8)
+    SM->>PP: cmd/path_planning (UInt8)
+
+    %% Feedback to statemachine
+    BP-->>SM: basic_waypoint/done (Bool)
+    PP-->>SM: path_planning/ready (Bool)
+    PP-->>SM: path_planning/goal_reached (Bool)
+    MAP-->>SM: mapping/ready (Bool)
+    DET-->>SM: detected_lanterns (PoseArray)
+
+    %% Trajectory flow
+    BP->>TS: trajectory (PolynomialTrajectory4D)
+    PP->>TS: trajectory (PolynomialTrajectory4D)
+    TS->>CTRL: command/trajectory (MultiDOFJointTrajectory)
+
+    %% Control output to simulation
+    CTRL->>W2U: rotor_speed_cmds (Actuators)
+    W2U-->>SIM: UDP 12346
+    UROS-->>SIM: TCP 9999 (commands)
+
+```
+
+##### State Diagram
+```mermaid
+stateDiagram-v2
+  state "BOOT <br> init system" as BOOT
+  state "TAKEOFF<br>takeoff sequence" as TAKEOFF
+  state "FOLLOWING<br>follow waypoints" as FOLLOWING
+  state "EXPLORING<br>autonomous explore" as EXPLORING
+  state "HOVERING<br>hold / loiter" as HOVERING
+  state "RETURN_HOME<br>return to exit" as RETURN_HOME
+  state "LANDING<br>landing sequence" as LANDING
+  state "ERROR<br>failure/timeout" as ERROR
+  state "ABORT<br>manual abort" as ABORT
+  state "DONE<br>mission finished" as DONE
+
+  [*] --> BOOT
+  BOOT --> TAKEOFF: start ok
+  TAKEOFF --> FOLLOWING: takeoff done
+  TAKEOFF --> ERROR: takeoff timeout
+  FOLLOWING --> EXPLORING: entrance reached
+  FOLLOWING --> ERROR: navigation timeout
+  EXPLORING --> HOVERING: hold requested
+  EXPLORING --> RETURN_HOME: goal reached
+  HOVERING --> EXPLORING: resume explore
+
+  RETURN_HOME --> LANDING: return complete
+
+  LANDING --> DONE: landed
+  LANDING --> ERROR: landing timeout
+
+  %% Global transitions
+  [*] --> ABORT: abort_requested
+  TAKEOFF --> ABORT: abort_requested
+  FOLLOWING --> ABORT: abort_requested
+  EXPLORING --> ABORT: abort_requested
+  HOVERING --> ABORT: abort_requested
+  LANDING --> ABORT: abort_requested
+
+  ERROR --> LANDING: try safe land
+  ABORT --> LANDING: try safe land
+
+  DONE --> [*]
+
+```
+
+### 2.2.2 Thinking
+
+#### Ideas
+```mermaid
+flowchart LR
+  sampler[trajectory_sampler_node]
+  stop_srv["/stop_sampling (std_srvs/Empty)"]
+  hold_srv["/back_to_position_hold (std_srvs/Empty)"]
+
+  sampler -- "server" --> stop_srv
+  sampler -. "client" .-> hold_srv
+
+```
+
+
+#### Overall Process Flow
 ```mermaid
 stateDiagram-v2
   [*] --> INIT
@@ -383,28 +502,6 @@ stateDiagram-v2
   ABORT --> LAND: attempt safe landing
   DONE --> [*]
 ```
-
-### 2.2.2 Ros2-Packages
-
-
-
-
-
-### 2.2.3 Ros2-Services
-
-
-```mermaid
-flowchart LR
-  sampler[trajectory_sampler_node]
-  stop_srv["/stop_sampling (std_srvs/Empty)"]
-  hold_srv["/back_to_position_hold (std_srvs/Empty)"]
-
-  sampler -- "server" --> stop_srv
-  sampler -. "client" .-> hold_srv
-
-```
-
-
 
 
 ---
