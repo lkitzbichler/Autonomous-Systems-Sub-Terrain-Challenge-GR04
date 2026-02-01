@@ -7,6 +7,7 @@ lantern_detector:
     semantic_topic: "/Quadrotor/Sensors/SemanticCamera/image_raw"
     semantic_info_topic: "/Quadrotor/Sensors/SemanticCamera/camera_info"
     output_topic: "detected_lanterns"
+    # marker_topic: "detection/lantern"
     marker_topic: "lantern_markers"
 
     # Frames

@@ -9,7 +9,21 @@ state_machine_node:
     return_timeout_sec: 90.0
     land_duration_sec: 5.0
     mission_time_limit_sec: 0.0
-    lantern_merge_dist_m: 1.0
+    lantern_merge_dist_m: 0.2
     lantern_log_path: "lanterns_log.csv"
     event_log_path: "statemachine_events.log"
     signal_timeout_sec: 5.0
+    topic_state: "statemachine/state"
+    topic_cmd_basic_waypoint: "statemachine/cmd/basic_waypoint"
+    topic_cmd_path_planning: "statemachine/cmd/path_planning"
+    topic_cmd_mapping: "statemachine/cmd/mapping"
+    topic_cmd_controller: "statemachine/cmd/controller"
+    topic_lantern_target: "statemachine/lantern_target"
+    topic_lanterns: "statemachine/lanterns"
+    topic_start: "statemachine/start"
+    topic_abort: "statemachine/abort"
+    topic_mapping_ready: "mapping/ready"
+    topic_path_ready: "path_planning/ready"
+    topic_waypoint_done: "basic_waypoint/done"
+    topic_goal_reached: "path_planning/goal_reached"
+    topic_lantern_detections: "detected_lanterns"
