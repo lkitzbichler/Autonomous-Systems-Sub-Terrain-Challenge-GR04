@@ -55,13 +55,13 @@ private:
     void transitionTo(MissionState next_state, const std::string &reason);
     void handleStateEntry(MissionState state);
     void publishState();
-    void logLanternPose(const geometry_msgs::msg::PoseStamped &pose, int id);
+    void logLanternPose(const geometry_msgs::msg::PoseStamped &pose, int id, size_t count);
     void logEvent(const std::string &message);
     void logCommand(const std::string &topic, Command cmd);
     void checkSignalTimeouts();
     void checkSignalTimeout(const std::string &name, const rclcpp::Time &last_time, bool &reported);
     void onLanternDetections(const geometry_msgs::msg::PoseArray::SharedPtr msg);
-    int associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, geometry_msgs::msg::Point &mean_out);
+    int associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, geometry_msgs::msg::Point &mean_out, size_t &count_out);
 
     static std::string toString(MissionState state);
     static std::string toString(Command cmd);
@@ -116,6 +116,7 @@ private:
     double lantern_merge_dist_m_{1.0};
     std::string lantern_log_path_;
     std::string event_log_path_;
+    std::string username_;
     double signal_timeout_sec_{5.0};
 
     // Topic parameters.
