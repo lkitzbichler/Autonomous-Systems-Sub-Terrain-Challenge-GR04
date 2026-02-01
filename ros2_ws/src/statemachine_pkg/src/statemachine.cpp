@@ -42,8 +42,7 @@ StateMachine::StateMachine()
     topic_cmd_path_planning_ = declare_parameter<std::string>("topic_cmd_path_planning", "statemachine/cmd/path_planning");
     topic_cmd_mapping_ = declare_parameter<std::string>("topic_cmd_mapping", "statemachine/cmd/mapping");
     topic_cmd_controller_ = declare_parameter<std::string>("topic_cmd_controller", "statemachine/cmd/controller");
-    topic_lantern_target_ = declare_parameter<std::string>("topic_lantern_target", "statemachine/lantern_target");
-    topic_lanterns_ = declare_parameter<std::string>("topic_lanterns", "statemachine/lanterns");
+    topic_cmd_lantern_detector_ = declare_parameter<std::string>("topic_cmd_lantern_detector", "statemachine/cmd/lantern_detector");
     topic_start_ = declare_parameter<std::string>("topic_start", "statemachine/start");
     topic_abort_ = declare_parameter<std::string>("topic_abort", "statemachine/abort");
     topic_mapping_ready_ = declare_parameter<std::string>("topic_mapping_ready", "mapping/ready");
@@ -57,8 +56,7 @@ StateMachine::StateMachine()
     pub_cmd_path_planning_ = create_publisher<std_msgs::msg::UInt8>(topic_cmd_path_planning_, 10);
     pub_cmd_mapping_ = create_publisher<std_msgs::msg::UInt8>(topic_cmd_mapping_, 10);
     pub_cmd_controller_ = create_publisher<std_msgs::msg::UInt8>(topic_cmd_controller_, 10);
-    pub_lantern_target_ = create_publisher<geometry_msgs::msg::PoseStamped>(topic_lantern_target_, 10);
-    pub_lanterns_ = create_publisher<geometry_msgs::msg::PoseArray>(topic_lanterns_, 10);
+    pub_cmd_lantern_detector_ = create_publisher<std_msgs::msg::UInt8>(topic_cmd_lantern_detector_, 10);
 
     sub_start_ = create_subscription<std_msgs::msg::Bool>(
         topic_start_, 10,
@@ -242,6 +240,8 @@ void StateMachine::handleStateEntry(MissionState state)
         logCommand(topic_cmd_path_planning_, Command::STOP);
         pub_cmd_mapping_->publish(cmd_msg);
         logCommand(topic_cmd_mapping_, Command::STOP);
+        pub_cmd_lantern_detector_->publish(cmd_msg);
+        logCommand(topic_cmd_lantern_detector_, Command::STOP);
         break;
     case MissionState::TAKEOFF:
         cmd_msg.data = static_cast<uint8_t>(Command::TAKEOFF);
@@ -272,10 +272,8 @@ void StateMachine::handleStateEntry(MissionState state)
         cmd_msg.data = static_cast<uint8_t>(Command::SCAN);
         pub_cmd_mapping_->publish(cmd_msg);
         logCommand(topic_cmd_mapping_, Command::SCAN);
-        active_lantern_ = pending_lantern_;
-        pub_lantern_target_->publish(active_lantern_);
-        lanterns_.header.stamp = this->now();
-        pub_lanterns_->publish(lanterns_);
+        pub_cmd_lantern_detector_->publish(cmd_msg);
+        logCommand(topic_cmd_lantern_detector_, Command::SCAN);
         break;
     case MissionState::RETURN_HOME:
         goal_reached_ = false;
@@ -296,6 +294,8 @@ void StateMachine::handleStateEntry(MissionState state)
         logCommand(topic_cmd_path_planning_, Command::STOP);
         pub_cmd_mapping_->publish(cmd_msg);
         logCommand(topic_cmd_mapping_, Command::STOP);
+        pub_cmd_lantern_detector_->publish(cmd_msg);
+        logCommand(topic_cmd_lantern_detector_, Command::STOP);
         break;
     case MissionState::ERROR:
         cmd_msg.data = static_cast<uint8_t>(Command::STOP);
@@ -307,6 +307,8 @@ void StateMachine::handleStateEntry(MissionState state)
         logCommand(topic_cmd_path_planning_, Command::STOP);
         pub_cmd_mapping_->publish(cmd_msg);
         logCommand(topic_cmd_mapping_, Command::STOP);
+        pub_cmd_lantern_detector_->publish(cmd_msg);
+        logCommand(topic_cmd_lantern_detector_, Command::STOP);
         break;
     case MissionState::ABORTED:
         cmd_msg.data = static_cast<uint8_t>(Command::STOP);
@@ -318,6 +320,8 @@ void StateMachine::handleStateEntry(MissionState state)
         logCommand(topic_cmd_path_planning_, Command::STOP);
         pub_cmd_mapping_->publish(cmd_msg);
         logCommand(topic_cmd_mapping_, Command::STOP);
+        pub_cmd_lantern_detector_->publish(cmd_msg);
+        logCommand(topic_cmd_lantern_detector_, Command::STOP);
         break;
     case MissionState::BOOT:
         break;

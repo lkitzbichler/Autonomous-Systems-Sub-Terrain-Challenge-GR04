@@ -72,8 +72,7 @@ private:
     rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr pub_cmd_path_planning_;
     rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr pub_cmd_mapping_;
     rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr pub_cmd_controller_;
-    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_lantern_target_;
-    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr pub_lanterns_;
+    rclcpp::Publisher<std_msgs::msg::UInt8>::SharedPtr pub_cmd_lantern_detector_;
 
     // ROS subscribers (events + ready signals).
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_start_;
@@ -100,7 +99,6 @@ private:
 
     geometry_msgs::msg::PoseStamped pending_lantern_;
     bool lantern_pending_{false};
-    geometry_msgs::msg::PoseStamped active_lantern_;
     geometry_msgs::msg::PoseArray lanterns_;
     std::vector<LanternTrack> lantern_tracks_;
     int next_lantern_id_{1};
@@ -126,8 +124,7 @@ private:
     std::string topic_cmd_path_planning_;
     std::string topic_cmd_mapping_;
     std::string topic_cmd_controller_;
-    std::string topic_lantern_target_;
-    std::string topic_lanterns_;
+    std::string topic_cmd_lantern_detector_;
     std::string topic_start_;
     std::string topic_abort_;
     std::string topic_mapping_ready_;
