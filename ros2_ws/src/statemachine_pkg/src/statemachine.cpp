@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -35,6 +36,16 @@ StateMachine::StateMachine()
     lantern_merge_dist_m_ = declare_parameter<double>("lantern_merge_dist_m", 1.0);
     lantern_log_path_ = declare_parameter<std::string>("lantern_log_path", "lanterns_log.csv");
     event_log_path_ = declare_parameter<std::string>("event_log_path", "statemachine_events.log");
+    username_ = declare_parameter<std::string>("username", "unknown");
+    if (username_.empty() || username_ == "unknown") {
+        const char *env_user = std::getenv("USER");
+        if (!env_user || std::string(env_user).empty()) {
+            env_user = std::getenv("USERNAME");
+        }
+        if (env_user && *env_user) {
+            username_ = env_user;
+        }
+    }
     signal_timeout_sec_ = declare_parameter<double>("signal_timeout_sec", 5.0);
 
     topic_state_ = declare_parameter<std::string>("topic_state", "statemachine/state");
@@ -328,7 +339,7 @@ void StateMachine::handleStateEntry(MissionState state)
     }
 }
 
-void StateMachine::logLanternPose(const geometry_msgs::msg::PoseStamped &pose, int id)
+void StateMachine::logLanternPose(const geometry_msgs::msg::PoseStamped &pose, int id, size_t count)
 {
     if (lantern_log_path_.empty()) {
         return;
@@ -367,12 +378,13 @@ void StateMachine::logLanternPose(const geometry_msgs::msg::PoseStamped &pose, i
     std::ostringstream date;
     date << std::put_time(&tm, "%Y/%m/%d");
 
-    const std::string header = "id,zeit,x,y,z";
+    const std::string header = "id,zeit,username,anzahl,x,y,z";
     lines.insert(lines.begin(), header);
 
     const std::string id_str = std::to_string(id);
     const std::string date_str = date.str();
     const std::string new_line = id_str + "," + date_str + "," +
+        username_ + "," + std::to_string(count) + "," +
         std::to_string(pose.pose.position.x) + "," +
         std::to_string(pose.pose.position.y) + "," +
         std::to_string(pose.pose.position.z);
@@ -388,9 +400,14 @@ void StateMachine::logLanternPose(const geometry_msgs::msg::PoseStamped &pose, i
         if (second_comma == std::string::npos) {
             continue;
         }
+        const auto third_comma = row.find(',', second_comma + 1);
+        if (third_comma == std::string::npos) {
+            continue;
+        }
         const std::string row_id = row.substr(0, first_comma);
         const std::string row_date = row.substr(first_comma + 1, second_comma - first_comma - 1);
-        if (row_id == id_str && row_date == date_str) {
+        const std::string row_user = row.substr(second_comma + 1, third_comma - second_comma - 1);
+        if (row_id == id_str && row_date == date_str && row_user == username_) {
             lines[i] = new_line;
             updated = true;
             break;
@@ -532,13 +549,14 @@ void StateMachine::onLanternDetections(const geometry_msgs::msg::PoseArray::Shar
     for (const auto &pose : msg->poses) {
         bool is_new = false;
         geometry_msgs::msg::Point mean;
-        const int id = associateLantern(pose.position, is_new, mean);
+        size_t count = 0;
+        const int id = associateLantern(pose.position, is_new, mean, count);
 
         geometry_msgs::msg::PoseStamped new_pose;
         new_pose.header = msg->header;
         new_pose.pose.position = mean;
         new_pose.pose.orientation.w = 1.0;
-        logLanternPose(new_pose, id);
+        logLanternPose(new_pose, id, count);
 
         if (is_new) {
             any_new = true;
@@ -571,7 +589,7 @@ void StateMachine::onLanternDetections(const geometry_msgs::msg::PoseArray::Shar
     lantern_stale_reported_ = false;
 }
 
-int StateMachine::associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, geometry_msgs::msg::Point &mean_out)
+int StateMachine::associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, geometry_msgs::msg::Point &mean_out, size_t &count_out)
 {
     int best_index = -1;
     double best_dist = std::numeric_limits<double>::max();
@@ -593,6 +611,7 @@ int StateMachine::associateLantern(const geometry_msgs::msg::Point &pos, bool &i
         lantern_tracks_.push_back(track);
         is_new = true;
         mean_out = pos;
+        count_out = track.count;
         return track.id;
     }
 
@@ -605,6 +624,7 @@ int StateMachine::associateLantern(const geometry_msgs::msg::Point &pos, bool &i
 
     is_new = false;
     mean_out = track.mean;
+    count_out = track.count;
     return track.id;
 }
 
