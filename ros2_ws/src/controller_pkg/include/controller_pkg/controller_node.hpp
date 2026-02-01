@@ -71,4 +71,5 @@ private:
   double yawd;              // desired yaw angle
 
   double hz;                // control loop frequency [Hz]
+  bool received_desired;    // flag to check if desired state has been received
 };

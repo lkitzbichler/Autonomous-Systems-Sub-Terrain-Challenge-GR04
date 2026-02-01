@@ -1,5 +1,7 @@
 #include "controller_pkg/controller_node.hpp"
 #include <rclcpp/rclcpp.hpp>
+#include <cmath>
+#include <chrono>
 
 int main(int argc, char** argv){
   rclcpp::init(argc, argv);
@@ -20,10 +22,12 @@ double ControllerNode::signed_sqrt(double val){
 
 ControllerNode::ControllerNode()
 : rclcpp::Node("controller_node"),
-  e3(0,0,1),
+  e3(0.0, 0.0, 1.0),
   F2W(4,4),
   hz(1000.0)
 {
+  received_desired = false;
+
   // Declare parameters
   kx = this->declare_parameter<double>("kx", 1.0);
   kv = this->declare_parameter<double>("kv", 1.0);
@@ -32,9 +36,16 @@ ControllerNode::ControllerNode()
 
   // Initialization of ROS elements
   motor_pub_= this->create_publisher<mav_msgs::msg::Actuators>("rotor_speed_cmds", 10);
-  desired_sub_ = this->create_subscription<trajectory_msgs::msg::MultiDOFJointTrajectory>("command/trajectory", 10, std::bind(&ControllerNode::onDesiredState, this, std::placeholders::_1));
-  current_sub_ = this->create_subscription<nav_msgs::msg::Odometry>( "current_state_est", 10, std::bind(&ControllerNode::onCurrentState, this, std::placeholders::_1));
-  timer_= this->create_wall_timer( std::chrono::duration<double>(1.0 / hz), std::bind(&ControllerNode::controlLoop, this) );
+  desired_sub_ = this->create_subscription<trajectory_msgs::msg::MultiDOFJointTrajectory>(
+    "command/trajectory", rclcpp::QoS(10),
+    std::bind(&ControllerNode::onDesiredState, this, std::placeholders::_1));
+  current_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+    "current_state_est", rclcpp::QoS(10),
+    std::bind(&ControllerNode::onCurrentState, this, std::placeholders::_1));
+  auto period = std::chrono::duration<double>(1.0 / hz);
+  timer_= this->create_wall_timer(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(period),
+    std::bind(&ControllerNode::controlLoop, this) );
 
   // Get parameters
   kx = this->get_parameter("kx").as_double();
@@ -52,34 +63,46 @@ ControllerNode::ControllerNode()
         0.0,1.0,0.0,
         0.0,0.0,1.0;
 
+  RCLCPP_INFO(this->get_logger(),
+              "Controller gains: kx=%.3f, kv=%.3f, kr=%.3f, komega=%.3f",
+              kx, kv, kr, komega);
+
   RCLCPP_INFO(this->get_logger(), "controller_node ready (hz=%.1f)", hz);
 }
 
 void ControllerNode::onDesiredState(const trajectory_msgs::msg::MultiDOFJointTrajectory::SharedPtr des_state_msg){
+  const auto & point = des_state_msg->points[0];
+
   // desired position
-  xd << des_state_msg->points[0].transforms[0].translation.x, 
-        des_state_msg->points[0].transforms[0].translation.y, 
-        des_state_msg->points[0].transforms[0].translation.z;
+  xd << point.transforms[0].translation.x,
+        point.transforms[0].translation.y,
+        point.transforms[0].translation.z;
 
   // desired velocity
-  vd << des_state_msg->points[0].velocities[0].linear.x, 
-        des_state_msg->points[0].velocities[0].linear.y, 
-        des_state_msg->points[0].velocities[0].linear.z,
+  vd << point.velocities[0].linear.x,
+        point.velocities[0].linear.y,
+        point.velocities[0].linear.z;
 
   // desired acceleration
-  ad << des_state_msg->points[0].accelerations[0].linear.x, 
-        des_state_msg->points[0].accelerations[0].linear.y, 
-        des_state_msg->points[0].accelerations[0].linear.z;
+  ad << point.accelerations[0].linear.x,
+        point.accelerations[0].linear.y,
+        point.accelerations[0].linear.z;
 
-  Eigen::Quaterniond q(
-    des_state_msg->points[0].transforms[0].rotation.w,
-    des_state_msg->points[0].transforms[0].rotation.x,
-    des_state_msg->points[0].transforms[0].rotation.y,
-    des_state_msg->points[0].transforms[0].rotation.z);
-  q.normalize();
-  
-  // desired yaw
-  this->yawd = PI + tf2::getYaw(tf2::Quaternion(q.x(), q.y(), q.z(), q.w()));
+  // desired yaw: align with desired velocity when moving
+  const double vxy = std::hypot(vd.x(), vd.y());
+  if (vxy > 1e-3) {
+    yawd = std::atan2(vd.y(), vd.x());
+  } else {
+    Eigen::Quaterniond q(
+      point.transforms[0].rotation.w,
+      point.transforms[0].rotation.x,
+      point.transforms[0].rotation.y,
+      point.transforms[0].rotation.z);
+    Eigen::Matrix3d R_des = q.toRotationMatrix();
+    yawd = std::atan2(R_des(1, 0), R_des(0, 0));
+  }
+
+  received_desired = true;
 }
 
 void ControllerNode::onCurrentState(const nav_msgs::msg::Odometry::SharedPtr cur_state_msg){
@@ -104,15 +127,19 @@ void ControllerNode::onCurrentState(const nav_msgs::msg::Odometry::SharedPtr cur
 }
 
 void ControllerNode::controlLoop(){
+    if (!received_desired) {
+      return;
+    }
     Eigen::Vector3d ex, ev, er, eomega;
     //position and velocity errors
     ex = this->x - this->xd;
     ev = this->v - this->vd;
 
     //calulation of cordnates of body fixed frame to world frame
-    Eigen::Vector3d b3d = (-kx*ex - kv*ev + m*g*e3 + m*ad).normalized();
-    Eigen::Vector3d b1c(std::cos(this->yawd), std::sin(this->yawd), 0.0);
-    Eigen::Vector3d b2d = b3d.cross(b1c).normalized();
+    Eigen::Vector3d a = -kx * ex - kv * ev + m * g * e3 + m * ad;
+    Eigen::Vector3d b3d = a.normalized();
+    Eigen::Vector3d yaw_vec(std::cos(this->yawd), std::sin(this->yawd), 0.0);
+    Eigen::Vector3d b2d = b3d.cross(yaw_vec).normalized();
     Eigen::Vector3d b1d = b2d.cross(b3d).normalized();
 
     //rotation matrix body fixed to world frame
@@ -122,33 +149,33 @@ void ControllerNode::controlLoop(){
     Rd.col(2) = b3d;
   
     //computation of orientation error (er) and the rotation-rate error (eomega)
-    er = 0.5 * Vee(Rd.transpose() * R - R.transpose() * Rd);
-    eomega = this->omega;
+    Eigen::Matrix3d eR_mat = 0.5 * (Rd.transpose() * R - R.transpose() * Rd);
+    er = Vee(eR_mat);
+    eomega = omega;
+//     eomega = -omega;
 
     //computation of the desired wrench (force + torques) to control the UAV
-    double F = (-kx*ex - kv*ev + m*g*e3 + m*ad).dot(R.col(2));
+    double F = a.dot(R * e3);
     Eigen::Vector3d M = -kr*er - komega*eomega + omega.cross(J * omega);
 
     //wrench to force and torques
-    F2W << cf, cf, cf, cf,
-          std::sqrt(2)/2 * d * cf,  std::sqrt(2)/2 * d * cf, -std::sqrt(2)/2 * d * cf, -std::sqrt(2)/2 * d * cf, 
-          - std::sqrt(2)/2 * d * cf, std::sqrt(2)/2 * d * cf, std::sqrt(2)/2 * d * cf,  - std::sqrt(2)/2 * d * cf,
-          cd,  -cd, cd,  -cd;
+    Eigen::Vector4d wrench;
+    wrench << F, M(0), M(1), M(2);
 
-    //calculation of wrench of the propellers
-    Eigen::Vector4d w = F2W.inverse() * Eigen::Vector4d (F, M(0), M(1), M(2));
+    double d_hat = d / std::sqrt(2.0);
+    Eigen::Matrix4d F2W_local;
+    F2W_local << cf,         cf,         cf,         cf,
+                 cf * d_hat, cf * d_hat, -cf * d_hat, -cf * d_hat,
+                -cf * d_hat, cf * d_hat,  cf * d_hat, -cf * d_hat,
+                 cd,        -cd,         cd,        -cd;
 
-    double w1 = signed_sqrt(w(0));
-    double w2 = signed_sqrt(w(1));
-    double w3 = signed_sqrt(w(2));
-    double w4 = signed_sqrt(w(3));
+    Eigen::Vector4d omega_squared = F2W_local.inverse() * wrench;
 
     //publishing the motorspeeds
     mav_msgs::msg::Actuators cmd;
     cmd.angular_velocities.resize(4);
-    cmd.angular_velocities[0] = w1;
-    cmd.angular_velocities[1] = w2;
-    cmd.angular_velocities[2] = w3;
-    cmd.angular_velocities[3] = w4;
+    for (size_t i = 0; i < 4; ++i) {
+      cmd.angular_velocities[i] = signed_sqrt(omega_squared(i));
+    }
     motor_pub_->publish(cmd);
   }
