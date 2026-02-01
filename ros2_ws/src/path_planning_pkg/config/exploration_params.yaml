@@ -1,0 +1,75 @@
+exploration_node:
+  ros__parameters:
+    octomap_topic: "/octomap_binary"
+    odom_topic: "current_state_est"
+    trajectory_topic: "trajectory"
+    frame_id: "world"
+
+    # local planning window
+    local_radius_xy: 40.0
+    local_radius_z: 15.0
+    grid_resolution: 0.5  # 0.0 -> use Octomap resolution
+
+    # safety
+    inflation_radius: 0.6
+
+    # frontier scoring
+    frontier_min_cluster_size: 2
+    frontier_gain_weight: 1.0
+    frontier_dist_weight: 1.0
+    info_gain_radius: 5.0
+    info_gain_unknown_weight: 1.0
+    cluster_size_weight: 1.0
+    outside_unknown_as_frontier: true
+    outside_unknown_as_gain: true
+    allow_unknown_traversal: false
+    unknown_traversal_penalty: 5.0
+
+    # forward bias (prefer goals in front of current heading)
+    forward_bias_weight: 6.0
+    min_forward_cos: 0.7
+    lateral_bias_weight: 1.5
+    forward_speed_threshold: 0.2
+    use_velocity_heading: false
+    invert_forward_dir: false
+    escape_fail_threshold: 3
+    escape_backoff: 2.0
+    escape_up: 0.5
+    goal_clearance: 0.8
+
+    # trajectory
+    waypoint_spacing: 4.0
+    max_v: 0.8
+    max_a: 0.4
+    use_yaw: false
+    yaw_speed_threshold: 0.2
+    yaw_offset: 0.0
+
+    # replanning
+    replan_period_sec: 4.0
+
+    # lantern stop condition
+    lantern_topic: "detected_lanterns"
+    required_lanterns: 4
+    stop_on_lanterns: true
+
+    # frontier goal history (avoid oscillation)
+    goal_history_size: 5
+    goal_history_radius: 2.0
+    global_frontier_merge_radius: 2.0
+    global_frontier_ttl_sec: 0.0
+    goal_reached_distance: 1.0
+    max_goal_failures: 3
+    subgoal_margin: 0.5
+    min_goal_distance: 2.0
+    min_path_length: 3.0
+
+    # start condition (set to last waypoint)
+    start_immediately: false
+    start_distance: 12.0
+    start_speed: 0.2
+    entrance_position: [-400.0, 7.0, 15.0]
+    start_on_waypoint_done: true
+    waypoint_done_topic: "basic_waypoint/done"
+
+    publish_markers: true

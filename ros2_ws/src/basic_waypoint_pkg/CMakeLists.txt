@@ -40,6 +40,10 @@ add_executable(basic_waypoint_node
   src/planner_node.cc
 )
 
+add_executable(waypoint_done_node
+  src/waypoint_done_node.cpp
+)
+
 target_include_directories(basic_waypoint_node
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -64,10 +68,18 @@ ament_target_dependencies(basic_waypoint_node
   yaml-cpp
 )
 
+ament_target_dependencies(waypoint_done_node
+  rclcpp
+  nav_msgs
+  std_msgs
+  Eigen3
+)
+
 # ==== Installation ====
 install(
   TARGETS
     basic_waypoint_node
+    waypoint_done_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

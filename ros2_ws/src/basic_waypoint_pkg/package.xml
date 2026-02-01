@@ -17,6 +17,8 @@
   <depend>mav_msgs</depend>
   <depend>mav_planning_msgs</depend>
   <depend>mav_trajectory_generation</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
 
   <!-- Linear algebra -->
   <depend>Eigen3</depend>

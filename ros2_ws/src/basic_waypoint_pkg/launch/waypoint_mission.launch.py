@@ -42,8 +42,17 @@ def generate_launch_description():
         ],
     )
 
+    done_node = Node(
+        package="basic_waypoint_pkg",
+        executable="waypoint_done_node",
+        name="waypoint_done_node",
+        output="screen",
+        parameters=[trajectory_config],
+    )
+
     return LaunchDescription([
         mav_name_arg,
         planner_node,
         sampler_node,
+        done_node,
     ])

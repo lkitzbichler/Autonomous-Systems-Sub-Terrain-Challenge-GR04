@@ -9,9 +9,48 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(octomap REQUIRED)
+find_package(octomap_msgs REQUIRED)
+find_package(mav_planning_msgs REQUIRED)
+find_package(mav_trajectory_generation REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 add_executable(pathplanner_node src/pathplanner.cpp)
-ament_target_dependencies(pathplanner_node rclcpp std_msgs)
+ament_target_dependencies(
+  pathplanner_node
+  rclcpp
+  std_msgs
+  nav_msgs
+  geometry_msgs
+  visualization_msgs
+  octomap
+  octomap_msgs
+  mav_planning_msgs
+  mav_trajectory_generation
+)
+target_link_libraries(pathplanner_node Eigen3::Eigen)
+target_link_libraries(pathplanner_node ${OCTOMAP_LIBRARIES})
+
+add_executable(exploration_node src/exploration_node.cpp)
+ament_target_dependencies(
+  exploration_node
+  rclcpp
+  std_msgs
+  nav_msgs
+  geometry_msgs
+  visualization_msgs
+  std_srvs
+  octomap
+  octomap_msgs
+  mav_planning_msgs
+  mav_trajectory_generation
+)
+target_link_libraries(exploration_node Eigen3::Eigen)
+target_link_libraries(exploration_node ${OCTOMAP_LIBRARIES})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -25,7 +64,7 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-install(TARGETS pathplanner_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS pathplanner_node exploration_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 ament_package()

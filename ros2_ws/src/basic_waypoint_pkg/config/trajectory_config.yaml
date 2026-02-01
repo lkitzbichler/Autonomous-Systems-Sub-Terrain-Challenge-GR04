@@ -3,14 +3,29 @@ planner:
     max_v: 2.5
     max_a: 1.5
 
-    waypoints: [ #-38.02, 10.0, 8.0,   # only for parameter tuning
-                #-38.02, 10.0, 10.0   # only for parameter tuning
-                #-50.0, 10.0, 7.0,  
-                -100.0, 10.0, 15.0,  # comment out for parameter tuning
-                -125.0, 10.0, 19.0,  # comment out for parameter tuning
-                -150.0, 10.0, 23.0,  # comment out for parameter tuning
-                -200.0, 10.0, 25.0,  # comment out for parameter tuning
-                -250.0, 10.0, 19.0,  # comment out for parameter tuning
-                -300.0, 10.0, 15.0]  # comment out for parameter tuning
+    waypoints: [
+      -100.0, 10.0, 15.0,
+      -125.0, 10.0, 19.0,
+      -150.0, 10.0, 23.0,
+      -200.0, 10.0, 25.0,
+      -250.0, 10.0, 19.0,
+      -300.0, 10.0, 15.0,
+      -350.0, 3.0, 15.0
+    ]
     
+    stop_index: -1
+
+waypoint_done_node:
+  ros__parameters:
+    distance_threshold: 1.0
+    speed_threshold: 0.6
+    waypoints: [
+      -100.0, 10.0, 15.0,
+      -125.0, 10.0, 19.0,
+      -150.0, 10.0, 23.0,
+      -200.0, 10.0, 25.0,
+      -250.0, 10.0, 19.0,
+      -300.0, 10.0, 15.0,
+      -350.0, 3.0, 15.0
+    ]
     stop_index: -1

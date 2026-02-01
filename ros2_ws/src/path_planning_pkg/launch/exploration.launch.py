@@ -8,17 +8,28 @@ def generate_launch_description():
     params_file = PathJoinSubstitution([
         FindPackageShare("path_planning_pkg"),
         "config",
-        "path_planning_params.yaml",
+        "exploration_params.yaml",
     ])
 
-    pathplanner_node = Node(
+    exploration_node = Node(
         package="path_planning_pkg",
-        executable="pathplanner_node",
-        name="path_planner",
+        executable="exploration_node",
+        name="exploration_node",
         output="screen",
         parameters=[params_file],
     )
 
+    sampler_node = Node(
+        package="mav_trajectory_generation",
+        executable="trajectory_sampler_node",
+        name="trajectory_sampler",
+        output="screen",
+        remappings=[
+            ("path_segments_4D", "trajectory"),
+        ],
+    )
+
     return LaunchDescription([
-        pathplanner_node,
+        exploration_node,
+        sampler_node,
     ])
