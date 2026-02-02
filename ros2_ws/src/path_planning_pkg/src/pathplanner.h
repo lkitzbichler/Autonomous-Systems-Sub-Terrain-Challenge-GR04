@@ -133,6 +133,7 @@ private:
   double max_a_ = 1.0;
   double goal_reached_tolerance_ = 0.5;
   double replan_interval_s_ = 2.0;
+  double replan_min_remaining_ = 0.0;
   double frontier_max_distance_ = 30.0;
   double min_goal_distance_ = 1.0;
   double frontier_score_distance_weight_ = 1.0;

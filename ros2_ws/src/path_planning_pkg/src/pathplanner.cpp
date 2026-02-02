@@ -146,6 +146,8 @@ PathPlannerNode::PathPlannerNode() : rclcpp::Node("path_planner") {
   goal_reached_tolerance_ =
       declare_parameter<double>("goal_reached_tolerance", 0.5);
   replan_interval_s_ = declare_parameter<double>("replan_interval_s", 2.0);
+  replan_min_remaining_ =
+      declare_parameter<double>("replan_min_remaining", 0.0);
   frontier_max_distance_ =
       declare_parameter<double>("frontier_max_distance", 30.0);
   min_goal_distance_ = declare_parameter<double>("min_goal_distance", 1.0);
@@ -341,6 +343,15 @@ void PathPlannerNode::tick() {
 
   if (!interval_elapsed && !force_replan_ && has_goal_) {
     return;
+  }
+
+  if (has_goal_ && replan_while_moving_ && interval_elapsed &&
+      replan_min_remaining_ > 0.0) {
+    const double dist_remaining =
+        (current_position_ - goal_position_).norm();
+    if (dist_remaining > replan_min_remaining_) {
+      return;
+    }
   }
 
   std::vector<FrontierCluster> clusters;

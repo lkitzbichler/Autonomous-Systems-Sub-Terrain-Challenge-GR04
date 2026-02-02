@@ -12,15 +12,16 @@ path_planner:
     auto_start: false
     start_on_waypoint_done: true
     visualize: true
-    replan_while_moving: false
+    replan_while_moving: true
 
     tick_rate_hz: 1.0
-    max_v: 0.7
-    max_a: 0.4
+    max_v: 2.0
+    max_a: 1.2
     goal_reached_tolerance: 0.8
-    replan_interval_s: 5.0
+    replan_interval_s: 10.0
+    replan_min_remaining: 10.0
 
-    frontier_max_distance: 60.0
+    frontier_max_distance: 200.0
     min_goal_distance: 5.0
     frontier_score_distance_weight: 0.8
     frontier_score_size_weight: 1.0
@@ -31,11 +32,11 @@ path_planner:
     use_velocity_heading: false
     invert_forward_dir: false
 
-    clearance_radius: 1.3
+    clearance_radius: 1.0
     use_yaw: true
     yaw_speed_threshold: 0.2
     yaw_offset: 3.14159
-    path_simplify_distance: 3.0
+    path_simplify_distance: 2.5
     use_line_of_sight_prune: true
     line_of_sight_step: 0.7
 
