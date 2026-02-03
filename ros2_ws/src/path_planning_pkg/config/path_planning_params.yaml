@@ -16,10 +16,10 @@ path_planner:
 
     tick_rate_hz: 1.0
     max_v: 2.0
-    max_a: 1.2
+    max_a: 0.9
     goal_reached_tolerance: 0.8
-    replan_interval_s: 10.0
-    replan_min_remaining: 10.0
+    replan_interval_s: 6.0
+    replan_min_remaining: 5.0
 
     frontier_max_distance: 200.0
     min_goal_distance: 5.0
@@ -32,13 +32,16 @@ path_planner:
     use_velocity_heading: false
     invert_forward_dir: false
 
-    clearance_radius: 1.0
+    clearance_radius: 1.3
     use_yaw: true
     yaw_speed_threshold: 0.2
     yaw_offset: 3.14159
     path_simplify_distance: 2.5
     use_line_of_sight_prune: true
     line_of_sight_step: 0.7
+    backtrack_enabled: true
+    backtrack_min_distance: 3.0
+    backtrack_stack_size: 50
 
     frontier_min_cluster_size: 5
     max_frontier_nodes: 60000

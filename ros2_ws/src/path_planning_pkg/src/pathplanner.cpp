@@ -169,6 +169,11 @@ PathPlannerNode::PathPlannerNode() : rclcpp::Node("path_planner") {
   yaw_speed_threshold_ =
       declare_parameter<double>("yaw_speed_threshold", 0.2);
   yaw_offset_ = declare_parameter<double>("yaw_offset", 0.0);
+  backtrack_enabled_ = declare_parameter<bool>("backtrack_enabled", true);
+  backtrack_min_distance_ =
+      declare_parameter<double>("backtrack_min_distance", 3.0);
+  backtrack_stack_size_ =
+      declare_parameter<int>("backtrack_stack_size", 50);
   clearance_radius_ = declare_parameter<double>("clearance_radius", 0.0);
   path_simplify_distance_ =
       declare_parameter<double>("path_simplify_distance", 1.0);
@@ -328,6 +333,16 @@ void PathPlannerNode::tick() {
   if (has_goal_) {
     const double dist = (current_position_ - goal_position_).norm();
     if (dist < goal_reached_tolerance_) {
+      if (backtrack_enabled_) {
+        if (backtrack_stack_.empty() ||
+            (goal_position_ - backtrack_stack_.back()).norm() >
+                backtrack_min_distance_) {
+          backtrack_stack_.push_back(goal_position_);
+          if (static_cast<int>(backtrack_stack_.size()) > backtrack_stack_size_) {
+            backtrack_stack_.pop_front();
+          }
+        }
+      }
       has_goal_ = false;
       force_replan_ = true;
     }
@@ -356,6 +371,14 @@ void PathPlannerNode::tick() {
 
   std::vector<FrontierCluster> clusters;
   if (!computeFrontierClusters(&clusters) || clusters.empty()) {
+    if (backtrack_enabled_) {
+      Eigen::Vector3d target;
+      if (popBacktrackTarget(&target)) {
+        if (planToPosition(target, clusters)) {
+          return;
+        }
+      }
+    }
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
                          "No frontiers found.");
     return;
@@ -425,6 +448,89 @@ void PathPlannerNode::tick() {
   if (visualize_) {
     publishVisualization(path, clusters, &goal_key);
   }
+}
+
+bool PathPlannerNode::planToPosition(
+    const Eigen::Vector3d &target,
+    const std::vector<FrontierCluster> &clusters) {
+  std::shared_ptr<octomap::OcTree> map;
+  octomap::point3d min;
+  octomap::point3d max;
+  {
+    std::lock_guard<std::mutex> lock(map_mutex_);
+    map = map_;
+    min = map_min_;
+    max = map_max_;
+  }
+  if (!map) {
+    return false;
+  }
+
+  octomap::OcTreeKey start_key;
+  if (!map->coordToKeyChecked(
+          octomap::point3d(current_position_.x(), current_position_.y(),
+                           current_position_.z()),
+          start_key)) {
+    return false;
+  }
+
+  if (!isFreeKeyInMap(map.get(), start_key, min, max, clearance_radius_)) {
+    if (!findNearestFreeKey(start_key, &start_key)) {
+      return false;
+    }
+  }
+
+  octomap::OcTreeKey goal_key;
+  if (!map->coordToKeyChecked(
+          octomap::point3d(target.x(), target.y(), target.z()), goal_key)) {
+    return false;
+  }
+
+  if (!isFreeKeyInMap(map.get(), goal_key, min, max, clearance_radius_)) {
+    if (!findNearestFreeKey(goal_key, &goal_key)) {
+      return false;
+    }
+  }
+
+  std::vector<octomap::OcTreeKey> path_keys;
+  if (!planPathAStar(start_key, goal_key, &path_keys)) {
+    return false;
+  }
+
+  std::vector<Eigen::Vector3d> path = simplifyPath(path_keys);
+  if (path.size() < 2) {
+    return false;
+  }
+
+  mav_trajectory_generation::Trajectory trajectory;
+  if (!buildTrajectoryFromPath(path, &trajectory)) {
+    return false;
+  }
+  publishTrajectory(trajectory);
+
+  goal_position_ = path.back();
+  has_goal_ = true;
+  force_replan_ = false;
+  last_plan_time_ = get_clock()->now();
+
+  if (visualize_) {
+    publishVisualization(path, clusters, &goal_key);
+  }
+
+  RCLCPP_INFO(get_logger(), "Backtracking to prior goal.");
+  return true;
+}
+
+bool PathPlannerNode::popBacktrackTarget(Eigen::Vector3d *target) {
+  while (!backtrack_stack_.empty()) {
+    const Eigen::Vector3d candidate = backtrack_stack_.back();
+    backtrack_stack_.pop_back();
+    if ((candidate - current_position_).norm() >= backtrack_min_distance_) {
+      *target = candidate;
+      return true;
+    }
+  }
+  return false;
 }
 
 bool PathPlannerNode::computeFrontierClusters(

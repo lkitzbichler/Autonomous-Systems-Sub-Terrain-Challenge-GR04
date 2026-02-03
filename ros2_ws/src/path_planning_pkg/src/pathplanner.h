@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <deque>
 
 class PathPlannerNode : public rclcpp::Node {
 public:
@@ -72,6 +73,10 @@ private:
   double forwardDot(const Eigen::Vector3d &target) const;
   double lateralDistance(const Eigen::Vector3d &target) const;
 
+  bool planToPosition(const Eigen::Vector3d &target,
+                      const std::vector<FrontierCluster> &clusters);
+  bool popBacktrackTarget(Eigen::Vector3d *target);
+
   std::vector<Eigen::Vector3d> simplifyPath(
       const std::vector<octomap::OcTreeKey> &path_keys) const;
   bool isSegmentFree(const Eigen::Vector3d &start,
@@ -110,6 +115,7 @@ private:
   bool has_goal_ = false;
   Eigen::Vector3d goal_position_ = Eigen::Vector3d::Zero();
   bool waypoint_done_ = false;
+  std::deque<Eigen::Vector3d> backtrack_stack_;
 
   rclcpp::Time last_plan_time_;
   rclcpp::Time last_map_stamp_;
@@ -147,6 +153,9 @@ private:
   bool use_yaw_ = true;
   double yaw_speed_threshold_ = 0.2;
   double yaw_offset_ = 0.0;
+  bool backtrack_enabled_ = true;
+  double backtrack_min_distance_ = 3.0;
+  int backtrack_stack_size_ = 50;
   double clearance_radius_ = 0.0;
   double path_simplify_distance_ = 1.0;
   bool use_line_of_sight_prune_ = true;
