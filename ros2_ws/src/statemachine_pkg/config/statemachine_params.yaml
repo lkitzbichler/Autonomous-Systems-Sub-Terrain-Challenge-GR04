@@ -5,7 +5,6 @@ state_machine_node:
     startup_grace_sec: 5.0
     takeoff_duration_sec: 3.0
     entrance_timeout_sec: 60.0
-    scan_duration_sec: 8.0
     return_timeout_sec: 90.0
     land_duration_sec: 5.0
     mission_time_limit_sec: 0.0
