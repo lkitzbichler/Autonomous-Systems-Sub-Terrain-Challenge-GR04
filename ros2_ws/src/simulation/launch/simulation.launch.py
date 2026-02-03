@@ -96,7 +96,7 @@ def generate_launch_description():
     # Nodes
     simulation_node = Node(
         package="simulation",
-        executable="Simulation_LQ.x86_64",
+        executable="Simulation.x86_64",
         name="Simulation",
         output="screen",
     )

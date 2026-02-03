@@ -13,7 +13,8 @@ sudo apt-get install -y --no-install-recommends \
   ros-jazzy-octomap-server \
   ros-jazzy-pcl-ros \
   ros-jazzy-depth-image-proc \
-  libgflags-dev
+  libgflags-dev \
+  libompl-dev
 
 echo "[1/4] Building colcon workspace..."
 cd "${ROS_WS}"
