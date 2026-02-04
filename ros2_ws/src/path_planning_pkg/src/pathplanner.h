@@ -17,7 +17,6 @@
 
 #include <mutex>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include <deque>
@@ -49,9 +48,9 @@ private:
   bool computeFrontierClusters(std::vector<FrontierCluster> *clusters);
   bool selectFrontierGoal(const std::vector<FrontierCluster> &clusters,
                           octomap::OcTreeKey *goal_key);
-  bool planPathAStar(const octomap::OcTreeKey &start_key,
-                     const octomap::OcTreeKey &goal_key,
-                     std::vector<octomap::OcTreeKey> *path_out);
+  bool planPathOmpl(const Eigen::Vector3d &start,
+                    const Eigen::Vector3d &goal,
+                    std::vector<Eigen::Vector3d> *path_out);
   bool buildTrajectoryFromPath(const std::vector<Eigen::Vector3d> &path,
                                mav_trajectory_generation::Trajectory *trajectory);
   bool publishTrajectory(const mav_trajectory_generation::Trajectory &trajectory);
@@ -63,12 +62,8 @@ private:
       const std::vector<Eigen::Vector3d> &waypoints,
       double fallback_yaw) const;
 
-  bool isFreeCoord(const octomap::point3d &coord) const;
-  bool isFreeKey(const octomap::OcTreeKey &key) const;
-  bool isFrontierKey(const octomap::OcTreeKey &key) const;
   bool findNearestFreeKey(const octomap::OcTreeKey &seed_key,
                           octomap::OcTreeKey *free_key) const;
-  octomap::point3d keyToCoord(const octomap::OcTreeKey &key) const;
 
   double forwardDot(const Eigen::Vector3d &target) const;
   double lateralDistance(const Eigen::Vector3d &target) const;
@@ -77,8 +72,8 @@ private:
                       const std::vector<FrontierCluster> &clusters);
   bool popBacktrackTarget(Eigen::Vector3d *target);
 
-  std::vector<Eigen::Vector3d> simplifyPath(
-      const std::vector<octomap::OcTreeKey> &path_keys) const;
+  std::vector<Eigen::Vector3d> simplifyPointPath(
+      const std::vector<Eigen::Vector3d> &path) const;
   bool isSegmentFree(const Eigen::Vector3d &start,
                      const Eigen::Vector3d &goal) const;
   std::vector<Eigen::Vector3d> prunePathLineOfSight(
@@ -156,6 +151,12 @@ private:
   bool backtrack_enabled_ = true;
   double backtrack_min_distance_ = 3.0;
   int backtrack_stack_size_ = 50;
+  double ompl_planning_time_ = 1.0;
+  double ompl_range_ = 5.0;
+  double ompl_goal_bias_ = 0.05;
+  double ompl_resolution_ = 0.02;
+  bool ompl_simplify_ = true;
+  bool ompl_allow_unknown_ = true;
   double clearance_radius_ = 0.0;
   double path_simplify_distance_ = 1.0;
   bool use_line_of_sight_prune_ = true;
@@ -163,5 +164,4 @@ private:
 
   int frontier_min_cluster_size_ = 5;
   int max_frontier_nodes_ = 50000;
-  int max_astar_nodes_ = 200000;
 };
