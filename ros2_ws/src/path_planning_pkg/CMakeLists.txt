@@ -9,9 +9,31 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(frontier_interfaces REQUIRED)
 
 add_executable(pathplanner_node src/pathplanner.cpp)
 ament_target_dependencies(pathplanner_node rclcpp std_msgs)
+
+# Exploration node with frontier integration and multi-slice logic
+add_executable(exploration_node 
+  src/exploration_node.cpp
+  src/multi_slice_logic.cpp
+  src/frontier_to_ompl.cpp)
+
+target_include_directories(exploration_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+
+ament_target_dependencies(exploration_node 
+  rclcpp
+  std_msgs
+  nav_msgs
+  geometry_msgs
+  visualization_msgs
+  frontier_interfaces)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -25,7 +47,8 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-install(TARGETS pathplanner_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS pathplanner_node exploration_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY include/ DESTINATION include)
 
 ament_package()

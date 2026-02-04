@@ -13,6 +13,7 @@ sudo apt-get install -y --no-install-recommends \
   ros-jazzy-octomap-server \
   ros-jazzy-pcl-ros \
   ros-jazzy-depth-image-proc \
+  ros-jazzy-tf2-geometry-msgs \
   libgflags-dev \
   libompl-dev
 
