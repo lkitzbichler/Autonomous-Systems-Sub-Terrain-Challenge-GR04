@@ -15,8 +15,8 @@ path_planner:
     replan_while_moving: true
 
     tick_rate_hz: 1.0
-    max_v: 2.5
-    max_a: 0.4
+    max_v: 2.0
+    max_a: 0.9
     goal_reached_tolerance: 0.8
     replan_interval_s: 12.0
     replan_min_remaining: 12.0
@@ -34,15 +34,15 @@ path_planner:
 
     clearance_radius: 1.5
     use_yaw: true
-    yaw_speed_threshold: 0.4
+    yaw_speed_threshold: 0.6
     yaw_offset: 0.0
-    path_simplify_distance: 4.0
+    path_simplify_distance: 2.2 # 2.5 # 2.0
     use_line_of_sight_prune: true
-    line_of_sight_step: 1.0
+    line_of_sight_step: 0.5
     backtrack_enabled: true
-    backtrack_min_distance: 5.0
+    backtrack_min_distance: 7.0 # without crash
     backtrack_stack_size: 60
-    ompl_planning_time: 2.0
+    ompl_planning_time: 1.8 # 1.6
     ompl_range: 12.0
     ompl_goal_bias: 0.10
     ompl_resolution: 0.02
