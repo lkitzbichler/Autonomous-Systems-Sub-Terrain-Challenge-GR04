@@ -6,12 +6,16 @@ path_planner:
     odom_topic: "/current_state_est"
     trajectory_topic: "trajectory"
     markers_topic: "path_planner/markers"
+    actual_path_topic: "path_planner/actual_path"
+    planned_path_topic: "path_planner/planned_path"
     world_frame: "world"
     waypoint_done_topic: "basic_waypoint/done"
 
     auto_start: false
     start_on_waypoint_done: true
     visualize: true
+    publish_actual_path: true
+    publish_planned_path: true
     replan_while_moving: true
 
     tick_rate_hz: 1.0
@@ -36,13 +40,15 @@ path_planner:
     use_yaw: true
     yaw_speed_threshold: 0.6
     yaw_offset: 0.0
-    path_simplify_distance: 2.4 # 2.5 # 2.0
+    path_simplify_distance: 2.3 # 2.5 # 2.0
     use_line_of_sight_prune: true
     line_of_sight_step: 0.5
+    actual_path_min_distance: 0.0
+    planned_path_min_distance: 0.0
     backtrack_enabled: true
     backtrack_min_distance: 7.0 # without crash
     backtrack_stack_size: 60
-    ompl_planning_time: 1.7 # 1.6
+    ompl_planning_time: 1.6 # 1.6
     ompl_range: 12.0
     ompl_goal_bias: 0.10
     ompl_resolution: 0.02

@@ -14,6 +14,7 @@
 #include <ompl/geometric/PathSimplifier.h>
 
 #include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
 #include <algorithm>
@@ -53,6 +54,7 @@ bool isFreeCoordInMap(const octomap::OcTree *tree,
     return true;
   }
 
+  // Enforce a spherical clearance by checking neighboring voxels.
   const double res = tree->getResolution();
   const int steps = static_cast<int>(std::ceil(clearance_radius / res));
   for (int dx = -steps; dx <= steps; ++dx) {
@@ -105,6 +107,7 @@ bool isFrontierKeyInMap(const octomap::OcTree *tree,
     }
     auto *n = tree->search(ncoord);
     if (!n) {
+      // Unknown neighbor => frontier.
       return true;
     }
   }
@@ -139,12 +142,20 @@ PathPlannerNode::PathPlannerNode() : rclcpp::Node("path_planner") {
   world_frame_ = declare_parameter<std::string>("world_frame", "world");
   waypoint_done_topic_ =
       declare_parameter<std::string>("waypoint_done_topic", "basic_waypoint/done");
+  actual_path_topic_ =
+      declare_parameter<std::string>("actual_path_topic", "path_planner/actual_path");
+  planned_path_topic_ =
+      declare_parameter<std::string>("planned_path_topic", "path_planner/planned_path");
 
   auto_start_ = declare_parameter<bool>("auto_start", true);
   visualize_ = declare_parameter<bool>("visualize", true);
   replan_while_moving_ = declare_parameter<bool>("replan_while_moving", false);
   start_on_waypoint_done_ =
       declare_parameter<bool>("start_on_waypoint_done", false);
+  publish_actual_path_ =
+      declare_parameter<bool>("publish_actual_path", true);
+  publish_planned_path_ =
+      declare_parameter<bool>("publish_planned_path", true);
 
   tick_rate_hz_ = declare_parameter<double>("tick_rate_hz", 1.0);
   max_v_ = declare_parameter<double>("max_v", 1.5);
@@ -194,6 +205,10 @@ PathPlannerNode::PathPlannerNode() : rclcpp::Node("path_planner") {
       declare_parameter<bool>("use_line_of_sight_prune", true);
   line_of_sight_step_ =
       declare_parameter<double>("line_of_sight_step", 0.5);
+  actual_path_min_distance_ =
+      declare_parameter<double>("actual_path_min_distance", 0.0);
+  planned_path_min_distance_ =
+      declare_parameter<double>("planned_path_min_distance", 0.0);
 
   frontier_min_cluster_size_ =
       declare_parameter<int>("frontier_min_cluster_size", 5);
@@ -222,6 +237,18 @@ PathPlannerNode::PathPlannerNode() : rclcpp::Node("path_planner") {
           trajectory_topic_, 10);
   markers_pub_ =
       create_publisher<visualization_msgs::msg::MarkerArray>(markers_topic_, 1);
+  if (publish_actual_path_) {
+    actual_path_pub_ = create_publisher<nav_msgs::msg::Path>(
+        actual_path_topic_,
+        rclcpp::QoS(1).transient_local().reliable());
+    actual_path_.header.frame_id = world_frame_;
+  }
+  if (publish_planned_path_) {
+    planned_path_pub_ = create_publisher<nav_msgs::msg::Path>(
+        planned_path_topic_,
+        rclcpp::QoS(1).transient_local().reliable());
+    planned_path_history_.header.frame_id = world_frame_;
+  }
 
   if (tick_rate_hz_ > 0.0) {
     timer_ = create_wall_timer(
@@ -239,6 +266,7 @@ PathPlannerNode::PathPlannerNode() : rclcpp::Node("path_planner") {
 }
 
 void PathPlannerNode::onCommand(const std_msgs::msg::String::SharedPtr msg) {
+  // Simple string command interface (start/stop/replan).
   std::string cmd = msg->data;
   std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::tolower);
 
@@ -261,6 +289,7 @@ void PathPlannerNode::onWaypointDone(
 }
 
 void PathPlannerNode::onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg) {
+  // Cache the latest Octomap and update bounds.
   std::unique_ptr<octomap::AbstractOcTree> tree;
   if (msg->binary) {
     tree.reset(octomap_msgs::binaryMsgToMap(*msg));
@@ -291,16 +320,35 @@ void PathPlannerNode::onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg)
   map_max_ = octomap::point3d(max_x, max_y, max_z);
   have_bounds_ = true;
 
-  last_map_stamp_ = msg->header.stamp;
 }
 
 void PathPlannerNode::onOdom(const nav_msgs::msg::Odometry::SharedPtr msg) {
-  current_odom_ = *msg;
+  // Update pose/velocity and derive a forward direction for scoring/yaw.
   current_position_ << msg->pose.pose.position.x, msg->pose.pose.position.y,
       msg->pose.pose.position.z;
   current_velocity_ << msg->twist.twist.linear.x, msg->twist.twist.linear.y,
       msg->twist.twist.linear.z;
   have_odom_ = true;
+
+  // --- Actual path ---
+  if (publish_actual_path_ && actual_path_pub_) {
+    bool append = true;
+    if (have_actual_path_ && actual_path_min_distance_ > 0.0) {
+      const double dist = (current_position_ - last_path_position_).norm();
+      append = dist >= actual_path_min_distance_;
+    }
+    if (!have_actual_path_ || append) {
+      geometry_msgs::msg::PoseStamped pose;
+      pose.header.stamp = msg->header.stamp;
+      pose.header.frame_id = world_frame_;
+      pose.pose = msg->pose.pose;
+      actual_path_.poses.push_back(pose);
+      last_path_position_ = current_position_;
+      have_actual_path_ = true;
+    }
+    actual_path_.header.stamp = msg->header.stamp;
+    actual_path_pub_->publish(actual_path_);
+  }
 
   const Eigen::Vector3d vel(current_velocity_.x(), current_velocity_.y(), 0.0);
   if (use_velocity_heading_ && vel.head<2>().norm() > forward_speed_threshold_) {
@@ -312,6 +360,7 @@ void PathPlannerNode::onOdom(const nav_msgs::msg::Odometry::SharedPtr msg) {
   }
 
   const auto &q = msg->pose.pose.orientation;
+  // Derive yaw from quaternion (Z-up world).
   const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
                                 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
   forward_dir_ = Eigen::Vector3d(std::cos(yaw), std::sin(yaw), 0.0);
@@ -322,6 +371,8 @@ void PathPlannerNode::onOdom(const nav_msgs::msg::Odometry::SharedPtr msg) {
 }
 
 void PathPlannerNode::tick() {
+  // --- Planning loop ---
+  // Main planning loop: select frontier -> plan path -> publish trajectory.
   if (!exploring_) {
     if (start_on_waypoint_done_ && waypoint_done_) {
       exploring_ = true;
@@ -343,12 +394,14 @@ void PathPlannerNode::tick() {
   }
 
   if (has_goal_) {
+    // Cache reached goals for optional backtracking.
     const double dist = (current_position_ - goal_position_).norm();
     if (dist < goal_reached_tolerance_) {
       if (backtrack_enabled_) {
         if (backtrack_stack_.empty() ||
             (goal_position_ - backtrack_stack_.back()).norm() >
                 backtrack_min_distance_) {
+          // Keep a bounded stack of reached goals for fallback routing.
           backtrack_stack_.push_back(goal_position_);
           if (static_cast<int>(backtrack_stack_.size()) > backtrack_stack_size_) {
             backtrack_stack_.pop_front();
@@ -381,8 +434,10 @@ void PathPlannerNode::tick() {
     }
   }
 
+  // Build frontier clusters in the known free space.
   std::vector<FrontierCluster> clusters;
   if (!computeFrontierClusters(&clusters) || clusters.empty()) {
+    // If no frontiers remain, try backtracking to a previous goal.
     if (backtrack_enabled_) {
       Eigen::Vector3d target;
       if (popBacktrackTarget(&target)) {
@@ -396,6 +451,7 @@ void PathPlannerNode::tick() {
     return;
   }
 
+  // Select the best frontier candidate as next goal.
   octomap::OcTreeKey goal_key;
   if (!selectFrontierGoal(clusters, &goal_key)) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
@@ -430,6 +486,7 @@ void PathPlannerNode::tick() {
     octomap::OcTreeKey start_key;
     if (map->coordToKeyChecked(start_coord, start_key) &&
         findNearestFreeKey(start_key, &start_key)) {
+      // Snap start to the closest free cell when current voxel is invalid.
       const octomap::point3d free_coord = map->keyToCoord(start_key);
       start = Eigen::Vector3d(free_coord.x(), free_coord.y(), free_coord.z());
     } else {
@@ -453,6 +510,9 @@ void PathPlannerNode::tick() {
     return;
   }
   publishTrajectory(trajectory);
+  if (publish_planned_path_) {
+    publishPlannedPath(path);
+  }
 
   goal_position_ = path.back();
   has_goal_ = true;
@@ -467,6 +527,7 @@ void PathPlannerNode::tick() {
 bool PathPlannerNode::planToPosition(
     const Eigen::Vector3d &target,
     const std::vector<FrontierCluster> &clusters) {
+  // --- Backtracking plan ---
   std::shared_ptr<octomap::OcTree> map;
   octomap::point3d min;
   octomap::point3d max;
@@ -527,6 +588,9 @@ bool PathPlannerNode::planToPosition(
     return false;
   }
   publishTrajectory(trajectory);
+  if (publish_planned_path_) {
+    publishPlannedPath(path);
+  }
 
   goal_position_ = path.back();
   has_goal_ = true;
@@ -549,6 +613,8 @@ bool PathPlannerNode::planToPosition(
 }
 
 bool PathPlannerNode::popBacktrackTarget(Eigen::Vector3d *target) {
+  // --- Backtracking selection ---
+  // Pop the most recent valid backtrack target.
   while (!backtrack_stack_.empty()) {
     const Eigen::Vector3d candidate = backtrack_stack_.back();
     backtrack_stack_.pop_back();
@@ -562,6 +628,8 @@ bool PathPlannerNode::popBacktrackTarget(Eigen::Vector3d *target) {
 
 bool PathPlannerNode::computeFrontierClusters(
     std::vector<FrontierCluster> *clusters) {
+  // --- Frontier detection ---
+  // Flood-fill free space and group frontier cells into clusters.
   clusters->clear();
 
   std::shared_ptr<octomap::OcTree> map;
@@ -695,6 +763,8 @@ bool PathPlannerNode::computeFrontierClusters(
 bool PathPlannerNode::planPathOmpl(const Eigen::Vector3d &start,
                                    const Eigen::Vector3d &goal,
                                    std::vector<Eigen::Vector3d> *path_out) {
+  // --- OMPL planning ---
+  // Plan a collision-free path using OMPL RRT* in 3D.
   path_out->clear();
 
   std::shared_ptr<octomap::OcTree> map;
@@ -710,24 +780,13 @@ bool PathPlannerNode::planPathOmpl(const Eigen::Vector3d &start,
     return false;
   }
 
-  RCLCPP_INFO_THROTTLE(
-      get_logger(), *get_clock(), 2000,
-      "OMPL plan: start=(%.2f, %.2f, %.2f) goal=(%.2f, %.2f, %.2f) "
-      "bounds=[(%.2f, %.2f, %.2f)-(%.2f, %.2f, %.2f)] allow_unknown=%s "
-      "clearance=%.2f",
-      start.x(), start.y(), start.z(), goal.x(), goal.y(), goal.z(), min.x(),
-      min.y(), min.z(), max.x(), max.y(), max.z(),
-      ompl_allow_unknown_ ? "true" : "false", clearance_radius_);
-
   octomap::OcTreeKey start_key;
   if (!map->coordToKeyChecked(
           octomap::point3d(start.x(), start.y(), start.z()), start_key)) {
-    RCLCPP_WARN(get_logger(), "OMPL start outside map bounds.");
     return false;
   }
   if (!isFreeKeyInMap(map.get(), start_key, min, max, clearance_radius_)) {
     if (!findNearestFreeKey(start_key, &start_key)) {
-      RCLCPP_WARN(get_logger(), "OMPL start not free and no nearby free cell.");
       return false;
     }
   }
@@ -736,29 +795,16 @@ bool PathPlannerNode::planPathOmpl(const Eigen::Vector3d &start,
   octomap::OcTreeKey goal_key;
   if (!map->coordToKeyChecked(
           octomap::point3d(goal.x(), goal.y(), goal.z()), goal_key)) {
-    RCLCPP_WARN(get_logger(), "OMPL goal outside map bounds.");
     return false;
   }
   if (!isFreeKeyInMap(map.get(), goal_key, min, max, clearance_radius_)) {
     if (!findNearestFreeKey(goal_key, &goal_key)) {
-      RCLCPP_WARN(get_logger(), "OMPL goal not free and no nearby free cell.");
       return false;
     }
   }
   const octomap::point3d goal_coord = map->keyToCoord(goal_key);
 
-  if ((start - Eigen::Vector3d(start_coord.x(), start_coord.y(),
-                               start_coord.z()))
-          .norm() > 0.1) {
-    RCLCPP_INFO(get_logger(), "OMPL start adjusted to (%.2f, %.2f, %.2f)",
-                start_coord.x(), start_coord.y(), start_coord.z());
-  }
-  if ((goal - Eigen::Vector3d(goal_coord.x(), goal_coord.y(), goal_coord.z()))
-          .norm() > 0.1) {
-    RCLCPP_INFO(get_logger(), "OMPL goal adjusted to (%.2f, %.2f, %.2f)",
-                goal_coord.x(), goal_coord.y(), goal_coord.z());
-  }
-
+  // OMPL setup: 3D real vector space with Octomap-based state validity.
   auto space = std::make_shared<ompl::base::RealVectorStateSpace>(3);
   ompl::base::RealVectorBounds bounds(3);
   bounds.setLow(0, min.x());
@@ -825,6 +871,8 @@ bool PathPlannerNode::planPathOmpl(const Eigen::Vector3d &start,
 bool PathPlannerNode::selectFrontierGoal(
     const std::vector<FrontierCluster> &clusters,
     octomap::OcTreeKey *goal_key) {
+  // --- Goal selection ---
+  // Score clusters and pick the best goal candidate.
   if (clusters.empty()) {
     return false;
   }
@@ -943,10 +991,12 @@ double PathPlannerNode::lateralDistance(const Eigen::Vector3d &target) const {
 
 std::vector<Eigen::Vector3d> PathPlannerNode::simplifyPointPath(
     const std::vector<Eigen::Vector3d> &path) const {
+  // --- Path post-processing ---
   if (path.size() < 2) {
     return path;
   }
 
+  // Distance-based downsampling followed by optional line-of-sight pruning.
   std::vector<Eigen::Vector3d> simplified;
   simplified.push_back(path.front());
   double accum = 0.0;
@@ -1033,12 +1083,15 @@ std::vector<Eigen::Vector3d> PathPlannerNode::prunePathLineOfSight(
 bool PathPlannerNode::buildTrajectoryFromPath(
     const std::vector<Eigen::Vector3d> &path,
     mav_trajectory_generation::Trajectory *trajectory) {
+  // --- Trajectory generation ---
   if (!trajectory || path.size() < 2) {
     return false;
   }
 
+  // Build a smooth polynomial trajectory (optionally with yaw).
   std::vector<Eigen::Vector3d> waypoints = path;
   if (waypoints.size() == 2) {
+    // Avoid degenerate trajectories with only two vertices.
     const Eigen::Vector3d mid = 0.5 * (waypoints.front() + waypoints.back());
     waypoints.insert(waypoints.begin() + 1, mid);
   }
@@ -1054,6 +1107,7 @@ bool PathPlannerNode::buildTrajectoryFromPath(
     const double vel_xy =
         std::hypot(current_velocity_.x(), current_velocity_.y());
     if (vel_xy > yaw_speed_threshold_) {
+      // Use velocity heading when moving fast enough.
       fallback_yaw =
           std::atan2(current_velocity_.y(), current_velocity_.x()) + yaw_offset_;
     }
@@ -1135,6 +1189,8 @@ bool PathPlannerNode::buildTrajectoryFromPath(
 std::vector<double> PathPlannerNode::computeYawFromPath(
     const std::vector<Eigen::Vector3d> &waypoints,
     double fallback_yaw) const {
+  // --- Yaw profile ---
+  // Derive a continuous yaw profile from segment directions.
   const size_t n = waypoints.size();
   std::vector<double> yaw_values(n, fallback_yaw);
   if (n < 2) {
@@ -1158,6 +1214,7 @@ std::vector<double> PathPlannerNode::computeYawFromPath(
 
 bool PathPlannerNode::publishTrajectory(
     const mav_trajectory_generation::Trajectory &trajectory) {
+  // --- Trajectory publish ---
   mav_planning_msgs::msg::PolynomialTrajectory4D msg;
   if (!mav_trajectory_generation::trajectoryToPolynomialTrajectoryMsg(trajectory,
                                                                       &msg)) {
@@ -1174,6 +1231,8 @@ void PathPlannerNode::publishVisualization(
     const std::vector<Eigen::Vector3d> &path,
     const std::vector<FrontierCluster> &clusters,
     const octomap::OcTreeKey *goal_key) {
+  // --- Visualization ---
+  // RViz markers for path, frontier centroids, and current goal.
   visualization_msgs::msg::MarkerArray markers;
 
   visualization_msgs::msg::Marker path_marker;
@@ -1253,8 +1312,37 @@ void PathPlannerNode::publishVisualization(
   markers_pub_->publish(markers);
 }
 
+void PathPlannerNode::publishPlannedPath(
+    const std::vector<Eigen::Vector3d> &path) {
+  if (!planned_path_pub_) {
+    return;
+  }
+  const rclcpp::Time now = get_clock()->now();
+  planned_path_history_.header.stamp = now;
+  for (const auto &p : path) {
+    if (have_planned_path_ && planned_path_min_distance_ > 0.0) {
+      const double dist = (p - last_planned_path_position_).norm();
+      if (dist < planned_path_min_distance_) {
+        continue;
+      }
+    }
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header.stamp = now;
+    pose.header.frame_id = world_frame_;
+    pose.pose.position.x = p.x();
+    pose.pose.position.y = p.y();
+    pose.pose.position.z = p.z();
+    pose.pose.orientation.w = 1.0;
+    planned_path_history_.poses.push_back(pose);
+    last_planned_path_position_ = p;
+    have_planned_path_ = true;
+  }
+  planned_path_pub_->publish(planned_path_history_);
+}
+
 bool PathPlannerNode::findNearestFreeKey(const octomap::OcTreeKey &seed_key,
                                          octomap::OcTreeKey *free_key) const {
+  // --- Nearest-free search ---
   std::shared_ptr<octomap::OcTree> map;
   octomap::point3d min;
   octomap::point3d max;

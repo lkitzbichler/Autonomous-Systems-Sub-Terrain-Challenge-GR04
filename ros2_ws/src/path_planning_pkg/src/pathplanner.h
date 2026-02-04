@@ -3,6 +3,7 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <nav_msgs/msg/odometry.hpp>
+#include <nav_msgs/msg/path.hpp>
 #include <octomap_msgs/msg/octomap.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -57,6 +58,7 @@ private:
   void publishVisualization(const std::vector<Eigen::Vector3d> &path,
                             const std::vector<FrontierCluster> &clusters,
                             const octomap::OcTreeKey *goal_key);
+  void publishPlannedPath(const std::vector<Eigen::Vector3d> &path);
 
   std::vector<double> computeYawFromPath(
       const std::vector<Eigen::Vector3d> &waypoints,
@@ -88,6 +90,8 @@ private:
       trajectory_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
       markers_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr actual_path_pub_;
+  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr planned_path_pub_;
 
   rclcpp::TimerBase::SharedPtr timer_;
 
@@ -98,12 +102,17 @@ private:
   octomap::point3d map_max_ = octomap::point3d(0.0, 0.0, 0.0);
   bool have_bounds_ = false;
 
-  nav_msgs::msg::Odometry current_odom_;
   bool have_odom_ = false;
   Eigen::Vector3d current_position_ = Eigen::Vector3d::Zero();
   Eigen::Vector3d current_velocity_ = Eigen::Vector3d::Zero();
   Eigen::Vector3d forward_dir_ = Eigen::Vector3d::UnitX();
   double last_yaw_ = 0.0;
+  nav_msgs::msg::Path actual_path_;
+  Eigen::Vector3d last_path_position_ = Eigen::Vector3d::Zero();
+  bool have_actual_path_ = false;
+  nav_msgs::msg::Path planned_path_history_;
+  Eigen::Vector3d last_planned_path_position_ = Eigen::Vector3d::Zero();
+  bool have_planned_path_ = false;
 
   bool exploring_ = false;
   bool force_replan_ = false;
@@ -113,7 +122,6 @@ private:
   std::deque<Eigen::Vector3d> backtrack_stack_;
 
   rclcpp::Time last_plan_time_;
-  rclcpp::Time last_map_stamp_;
 
   // Parameters
   std::string command_topic_;
@@ -123,11 +131,15 @@ private:
   std::string markers_topic_;
   std::string world_frame_;
   std::string waypoint_done_topic_;
+  std::string actual_path_topic_;
+  std::string planned_path_topic_;
 
   bool auto_start_ = true;
   bool visualize_ = true;
   bool replan_while_moving_ = false;
   bool start_on_waypoint_done_ = false;
+  bool publish_actual_path_ = true;
+  bool publish_planned_path_ = true;
 
   double tick_rate_hz_ = 1.0;
   double max_v_ = 1.5;
@@ -161,6 +173,8 @@ private:
   double path_simplify_distance_ = 1.0;
   bool use_line_of_sight_prune_ = true;
   double line_of_sight_step_ = 0.5;
+  double actual_path_min_distance_ = 0.0;
+  double planned_path_min_distance_ = 0.0;
 
   int frontier_min_cluster_size_ = 5;
   int max_frontier_nodes_ = 50000;
