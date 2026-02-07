@@ -1,4 +1,32 @@
 path_planner:
   ros__parameters:
     use_sim_time: false
-    command_topic: "statemachine/command"
+    command_topic: "statemachine/cmd/path_planning"
+    frontier_topic: "frontier_target"
+    odom_topic: "current_state_est"
+    octomap_topic: "/octomap_binary"
+    trajectory_topic: "command/trajectory"
+    ready_topic: "path_planning/ready"
+    goal_reached_topic: "path_planning/goal_reached"
+    map_frame: "world"
+    auto_start: true
+    require_map: true
+    hold_when_idle: true
+    simplify_path: true
+    treat_unknown_as_occupied: false
+    publish_rate: 20.0
+    planner_rate: 1.0
+    max_planning_time: 1.0
+    planner_range: 1.0
+    goal_tolerance: 0.5
+    waypoint_reached_dist: 0.4
+    lookahead_dist: 0.8
+    cruise_speed: 1.0
+    collision_radius: 0.5
+    occupancy_threshold: 0.5
+    map_bound_padding: 1.0
+    path_interpolation_resolution: 0.3
+    yaw_offset: 3.14159265
+    tf_timeout_sec: 0.2
+    default_bounds: [-50.0, 50.0, -50.0, 50.0, 0.0, 20.0]
+    home_position: [-38.02, 10.0, 6.57]

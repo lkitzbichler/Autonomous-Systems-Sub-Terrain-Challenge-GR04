@@ -102,11 +102,21 @@ ros2_ws/src/path_planning_pkg/
 ```
 ┌─────────────────────────┐
 │   Unity Simulation      │
-│ - Generates 3D map      │
+│ - Generates depth/PCD   │
 │ - Tracks drone height   │
 └────────┬────────────────┘
-         │ Publishes /map_3d (nav_msgs/OccupancyGrid)
          │ Publishes /drone_height (std_msgs/Float64)
+         ▼
+┌─────────────────────────┐
+│     Octomap Server      │
+│ - Builds /octomap_binary│
+└────────┬────────────────┘
+         ▼
+┌─────────────────────────┐
+│  octomap_slice_node     │
+│ - 2D slice from octomap │
+└────────┬────────────────┘
+         │ Publishes /map_3d (nav_msgs/OccupancyGrid, 2D slice)
          ▼
 ┌─────────────────────────────────────────────┐
 │  classical_frontier_detector (from GitHub)  │

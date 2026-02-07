@@ -15,6 +15,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <std_msgs/msg/float64.hpp>
@@ -47,6 +48,7 @@ public:
         this->declare_parameter("slice_thickness", 0.5);
         this->declare_parameter("map_topic", "/map_3d");
         this->declare_parameter("drone_height_topic", "/drone_height");
+        this->declare_parameter("odom_topic", "/current_state_est");
         this->declare_parameter("frontier_rank", 0);
         this->declare_parameter("max_frontier_cost", 50.0);
         this->declare_parameter("min_exploration_height", 0.5);
@@ -58,6 +60,7 @@ public:
         slice_thickness_ = this->get_parameter("slice_thickness").as_double();
         std::string map_topic = this->get_parameter("map_topic").as_string();
         std::string drone_height_topic = this->get_parameter("drone_height_topic").as_string();
+        std::string odom_topic = this->get_parameter("odom_topic").as_string();
         frontier_rank_ = this->get_parameter("frontier_rank").as_int();
         max_frontier_cost_ = this->get_parameter("max_frontier_cost").as_double();
         min_exploration_height_ = this->get_parameter("min_exploration_height").as_double();
@@ -71,6 +74,10 @@ public:
         height_subscription_ = this->create_subscription<std_msgs::msg::Float64>(
             drone_height_topic, 10,
             std::bind(&ExplorationNode::heightCallback, this, std::placeholders::_1));
+
+        odom_subscription_ = this->create_subscription<nav_msgs::msg::Odometry>(
+            odom_topic, 10,
+            std::bind(&ExplorationNode::odomCallback, this, std::placeholders::_1));
 
         // Create frontier exploration client
         frontier_client_ = this->create_client<frontier_interfaces::srv::FrontierGoal>(
@@ -108,6 +115,15 @@ private:
     void heightCallback(const std_msgs::msg::Float64::SharedPtr msg) {
         std::lock_guard<std::mutex> lock(height_mutex_);
         current_drone_height_ = msg->data;
+    }
+
+    void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
+        if (!msg) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(odom_mutex_);
+        current_position_ = msg->pose.pose.position;
+        has_odom_ = true;
     }
 
     // Main exploration loop
@@ -170,14 +186,18 @@ private:
                     "map");
 
             // Check if target is within acceptable cost
+            geometry_msgs::msg::Point current_pos;
             {
-                std::lock_guard<std::mutex> lock(height_mutex_);
-                geometry_msgs::msg::Point current_pos;
-                current_pos.x = 0.0;  // Will be updated with actual robot position
-                current_pos.y = 0.0;
-                current_pos.z = current_drone_height_;
+                std::lock_guard<std::mutex> lock(odom_mutex_);
+                if (has_odom_) {
+                    current_pos = current_position_;
+                }
+            }
 
+            if (has_odom_) {
                 target.cost = FrontierToOMPL::calculateDistance(current_pos, target.position);
+            } else {
+                target.cost = 0.0;
             }
 
             if (target.cost <= max_frontier_cost_) {
@@ -268,6 +288,7 @@ private:
     // ROS2 interface members
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_subscription_;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr height_subscription_;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_subscription_;
     rclcpp::Client<frontier_interfaces::srv::FrontierGoal>::SharedPtr frontier_client_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr frontier_target_publisher_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_publisher_;
@@ -277,11 +298,14 @@ private:
     // Synchronization
     std::mutex map_mutex_;
     std::mutex height_mutex_;
+    std::mutex odom_mutex_;
 
     // State
     nav_msgs::msg::OccupancyGrid current_map_;
     bool has_map_ = false;
     double current_drone_height_;
+    geometry_msgs::msg::Point current_position_{};
+    bool has_odom_ = false;
     bool is_exploring_;
 
     // Parameters

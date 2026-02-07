@@ -13,9 +13,50 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(frontier_interfaces REQUIRED)
+find_package(trajectory_msgs REQUIRED)
+find_package(octomap REQUIRED)
+find_package(octomap_msgs REQUIRED)
+find_package(ompl REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 add_executable(pathplanner_node src/pathplanner.cpp)
-ament_target_dependencies(pathplanner_node rclcpp std_msgs)
+ament_target_dependencies(pathplanner_node
+  rclcpp
+  std_msgs
+  nav_msgs
+  geometry_msgs
+  trajectory_msgs
+  octomap_msgs
+  tf2_ros
+  tf2_geometry_msgs)
+
+if(TARGET ompl::ompl)
+  target_link_libraries(pathplanner_node ompl::ompl)
+elseif(OMPL_LIBRARIES)
+  target_link_libraries(pathplanner_node ${OMPL_LIBRARIES})
+  target_include_directories(pathplanner_node PRIVATE ${OMPL_INCLUDE_DIRS})
+else()
+  target_link_libraries(pathplanner_node ompl)
+endif()
+
+if(OCTOMAP_LIBRARIES)
+  target_link_libraries(pathplanner_node ${OCTOMAP_LIBRARIES})
+  target_include_directories(pathplanner_node PRIVATE ${OCTOMAP_INCLUDE_DIRS})
+endif()
+
+# Octomap -> 2D slice converter
+add_executable(octomap_slice_node src/octomap_slice_node.cpp)
+ament_target_dependencies(octomap_slice_node
+  rclcpp
+  std_msgs
+  nav_msgs
+  octomap_msgs)
+
+if(OCTOMAP_LIBRARIES)
+  target_link_libraries(octomap_slice_node ${OCTOMAP_LIBRARIES})
+  target_include_directories(octomap_slice_node PRIVATE ${OCTOMAP_INCLUDE_DIRS})
+endif()
 
 # Exploration node with frontier integration and multi-slice logic
 add_executable(exploration_node 
@@ -47,7 +88,7 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-install(TARGETS pathplanner_node exploration_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS pathplanner_node octomap_slice_node exploration_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 

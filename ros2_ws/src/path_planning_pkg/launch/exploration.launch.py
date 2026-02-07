@@ -39,7 +39,10 @@ def generate_launch_description():
         parameters=[
             {'region_size_thresh': 12},
             {'robot_width': 0.5},
-            {'occupancy_map_msg': LaunchConfiguration('map_topic')}
+            {'occupancy_map_msg': LaunchConfiguration('map_topic')},
+            {'map_frame': 'world'},
+            {'odom_frame': 'world'},
+            {'base_frame': 'body'}
         ],
         remappings=[
             ('map', LaunchConfiguration('map_topic'))
@@ -62,11 +65,25 @@ def generate_launch_description():
         output='screen'
     )
 
+    # Octomap -> 2D slice converter for frontier exploration
+    octomap_slice_node = Node(
+        package='path_planning_pkg',
+        executable='octomap_slice_node',
+        name='octomap_slice_node',
+        parameters=[
+            os.path.join(pkg_share, 'config', 'octomap_slice_params.yaml'),
+            {'map_topic': LaunchConfiguration('map_topic')},
+            {'height_margin': LaunchConfiguration('height_margin')}
+        ],
+        output='screen'
+    )
+
     return LaunchDescription([
         exploration_height,
         height_margin,
         map_topic,
         frontier_rank,
+        octomap_slice_node,
         frontier_explorer_node,
         exploration_node
     ])

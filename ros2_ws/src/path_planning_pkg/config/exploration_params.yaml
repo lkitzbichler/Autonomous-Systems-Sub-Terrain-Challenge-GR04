@@ -1,15 +1,12 @@
-/**
- * exploration_node Configuration
- * 
- * Parameters for frontier exploration with multi-slice logic
- */
-
-exploration_height: 2.0        # Target height for frontier exploration (meters)
-height_margin: 3.0             # Margin above/below drone height to consider for slices (meters)
-slice_thickness: 0.5           # Thickness of each height slice (meters)
-map_topic: "/map_3d"           # Topic for 3D occupancy grid from Unity simulation
-drone_height_topic: "/drone_height"  # Topic for current drone height
-frontier_rank: 0               # Rank of frontier to select (0 = closest, 1 = second, etc.)
-max_frontier_cost: 50.0        # Maximum acceptable distance to frontier target (meters)
-min_exploration_height: 0.5    # Minimum exploration height (meters)
-max_exploration_height: 10.0   # Maximum exploration height (meters)
+exploration_node:
+  ros__parameters:
+    exploration_height: 2.0
+    height_margin: 3.0
+    slice_thickness: 0.5
+    map_topic: "/map_3d"
+    drone_height_topic: "/drone_height"
+    odom_topic: "/current_state_est"
+    frontier_rank: 0
+    max_frontier_cost: 400.0
+    min_exploration_height: 0.5
+    max_exploration_height: 10.0

@@ -1,0 +1,14 @@
+octomap_slice_node:
+  ros__parameters:
+    octomap_topic: "/octomap_binary"
+    map_topic: "/map_3d"
+    drone_height_topic: "/drone_height"
+    frame_id: ""
+    use_drone_height: true
+    fixed_height: 2.0
+    height_margin: 3.0
+    slice_thickness: 0.5
+    publish_rate: 1.0
+    map_padding: 1.0
+    occupied_value: 100
+    free_value: 0
