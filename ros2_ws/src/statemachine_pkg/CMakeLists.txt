@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 add_executable(state_machine_node
   src/statemachine.cpp
@@ -19,12 +20,14 @@ target_include_directories(state_machine_node
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+    ${EIGEN3_INCLUDE_DIRS}
 )
 
 ament_target_dependencies(state_machine_node
   rclcpp
   std_msgs
   geometry_msgs
+  Eigen3
 )
 
 install(TARGETS

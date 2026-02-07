@@ -23,7 +23,7 @@ classDiagram
     -LanternTrack[] lantern_tracks_
   }
 
-  class LanternTrack {
+  class Lantern {
     +int id
     +Point mean
     +Point[] samples
@@ -198,7 +198,7 @@ classDiagram
 
   StateMachineNode --> MissionState
   StateMachineNode --> Command
-  StateMachineNode o--> LanternTrack
+  StateMachineNode o--> Lantern
 
   StateMachineNode --> Topic_cmd_basic_waypoint : publishes
   Topic_cmd_basic_waypoint --> BasicWaypointNode : subscribes
@@ -264,21 +264,37 @@ classDiagram
 
   class StateMachineNode {
     +StateMachine()
-    -onTimer()
-    -transitionTo(next, reason)
-    -handleStateEntry(state)
-    -publishState()
-    -onLanternDetections(msg)
-    -checkSignalTimeouts()
+    -publishState() void
+    -sendCommand() void
+    -handleAnswer() void 
+    -changeState() void
+    -transitionTo(next, reason) void
+
+    -onLanternDetection(msg)
+
     -logEvent(msg)
     -logCommand(topic, cmd)
     -associateLantern(pos, is_new, mean, count)
+
+    -onTimer()
+    -handleStateEntry(state)
+    
+    -onLanternDetections(msg)
+    -checkSignalTimeouts()
+    
+    -logEvent(msg)
+    -logCommand(topic, cmd)
+    
+    -associateLantern(pos, is_new, mean, count)
+
+
     -MissionState state_
+    -bool error_
     -Command last_cmd_
-    -LanternTrack[] lantern_tracks_
+    -Lantern[] lantern_tracks_
   }
 
-  class LanternTrack {
+  class Lantern {
     +int id
     +Point mean
     +Point[] samples
@@ -313,5 +329,5 @@ classDiagram
 
   StateMachineNode --> MissionState
   StateMachineNode --> Command
-  StateMachineNode o--> LanternTrack
+  StateMachineNode o--> Lantern
 ```
