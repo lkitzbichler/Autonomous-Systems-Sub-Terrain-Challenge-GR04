@@ -29,21 +29,7 @@ find_package(yaml-cpp REQUIRED)
 find_package(mav_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(gflags REQUIRED)
-
-ExternalProject_Add(glog_ext
-  GIT_REPOSITORY https://github.com/google/glog.git
-  GIT_TAG v0.3.5
-  UPDATE_COMMAND ""
-  CMAKE_ARGS
-    -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_INSTALL_PREFIX}
-    -DCMAKE_BUILD_TYPE:STRING=Release
-    -DBUILD_SHARED_LIBS=ON
-    -DWITH_GFLAGS=OFF              # optional
-    -DWITH_GTEST=OFF               # <--- important
-    -DBUILD_TESTING=OFF            # <--- important
-  BUILD_COMMAND $(MAKE)
-  INSTALL_COMMAND $(MAKE) install
-)
+find_package(glog REQUIRED)
 
 ExternalProject_Add(nlopt_ext
   GIT_REPOSITORY https://github.com/stevengj/nlopt.git
@@ -64,19 +50,14 @@ ExternalProject_Add(nlopt_ext
   INSTALL_COMMAND $(MAKE) install
 )
 
-set(GLOG_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
-set(GLOG_LIBRARY_DIR ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
-
 set(NLOPT_INCLUDE_DIR ${CMAKE_INSTALL_PREFIX}/include)
 set(NLOPT_LIBRARY_DIR ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
 
 include_directories(
   ${EIGEN3_INCLUDE_DIRS}
-  ${GLOG_INCLUDE_DIR}
   ${NLOPT_INCLUDE_DIR}
 )
 link_directories(
-  ${GLOG_LIBRARY_DIR} 
   ${NLOPT_LIBRARY_DIR}
 )
 
@@ -95,12 +76,11 @@ add_library(${PROJECT_NAME} SHARED
 )
 
 add_dependencies(${PROJECT_NAME} 
-  glog_ext
   nlopt_ext
 )
 
 target_link_libraries(${PROJECT_NAME}
-    glog
+    glog::glog
     nlopt
     yaml-cpp
 )
@@ -112,7 +92,6 @@ target_include_directories(${PROJECT_NAME}
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/third_party/eigen-checks/include>
     $<INSTALL_INTERFACE:include>
-    ${GLOG_INCLUDE_DIR}
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -200,16 +179,17 @@ install(
   DESTINATION include
 )
 
-# install nlopt and glog libraries
+# install nlopt libraries
 install(DIRECTORY ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/
   DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  FILES_MATCHING PATTERN "libnlopt.*" PATTERN "libglog.*"
+  FILES_MATCHING PATTERN "libnlopt.*"
 )
 
 # ==== Export for downstream packages ====
 ament_export_libraries(${PROJECT_NAME})
 ament_export_include_directories(include)
 ament_export_dependencies(yaml-cpp)
+ament_export_dependencies(glog)
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 
 ament_package()

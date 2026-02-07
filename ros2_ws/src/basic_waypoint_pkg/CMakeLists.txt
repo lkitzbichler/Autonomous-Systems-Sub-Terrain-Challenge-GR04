@@ -26,6 +26,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(glog REQUIRED)
 
 # Replaces eigen_catkin
 find_package(Eigen3 REQUIRED)
@@ -60,6 +61,7 @@ ament_target_dependencies(basic_waypoint_node
   tf2_ros
   tf2_eigen
   tf2_geometry_msgs
+  glog
   Eigen3
   yaml-cpp
 )

@@ -10,6 +10,8 @@ SIM_DST="${ROS_WS}/install/simulation/lib/simulation"
 echo "[0/4] Updating apt metadata and installing system deps..."
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
+  ros-jazzy-navigation2 \
+  ros-jazzy-nav2-bringup \
   ros-jazzy-octomap-server \
   ros-jazzy-pcl-ros \
   ros-jazzy-depth-image-proc \

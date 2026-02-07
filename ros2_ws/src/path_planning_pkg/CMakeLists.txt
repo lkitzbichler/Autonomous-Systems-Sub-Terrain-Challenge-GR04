@@ -9,9 +9,20 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(nav2_core REQUIRED)
+find_package(nav2_util REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(nav2_costmap_2d REQUIRED)
 
 add_executable(pathplanner_node src/pathplanner.cpp)
-ament_target_dependencies(pathplanner_node rclcpp std_msgs)
+ament_target_dependencies(pathplanner_node
+  rclcpp
+  std_msgs
+  nav2_core
+  nav2_util
+  nav2_msgs
+  nav2_costmap_2d
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
