@@ -13,6 +13,7 @@ sudo apt-get install -y --no-install-recommends \
   ros-jazzy-navigation2 \
   ros-jazzy-nav2-bringup \
   ros-jazzy-octomap-server \
+  ros-jazzy-visualization-msgs \
   ros-jazzy-pcl-ros \
   ros-jazzy-depth-image-proc \
   libgflags-dev

@@ -277,15 +277,10 @@ classDiagram
     -associateLantern(pos, is_new, mean, count)
 
     -onTimer()
-    -handleStateEntry(state)
+    -handleStateEntry(state) old -> new changeState
     
-    -onLanternDetections(msg)
-    -checkSignalTimeouts()
-    
-    -logEvent(msg)
-    -logCommand(topic, cmd)
-    
-    -associateLantern(pos, is_new, mean, count)
+    -onLanternDetections(msg) old
+    -checkSignalTimeouts() old
 
 
     -MissionState state_

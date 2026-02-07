@@ -7,10 +7,19 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(builtin_interfaces REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/Command.msg"
+  "msg/Answer.msg"
+  DEPENDENCIES builtin_interfaces
+)
 
 add_executable(state_machine_node
   src/statemachine.cpp
@@ -27,7 +36,12 @@ ament_target_dependencies(state_machine_node
   rclcpp
   std_msgs
   geometry_msgs
+  visualization_msgs
   Eigen3
+)
+
+rosidl_target_interfaces(state_machine_node
+  ${PROJECT_NAME} "rosidl_typesupport_cpp"
 )
 
 install(TARGETS
