@@ -12,6 +12,7 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 
@@ -37,6 +38,7 @@ ament_target_dependencies(state_machine_node
   std_msgs
   geometry_msgs
   visualization_msgs
+  nav_msgs
   Eigen3
 )
 

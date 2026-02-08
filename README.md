@@ -289,19 +289,18 @@ flowchart LR
   end
 
   %% Connections (topics from statemachine)
-  state_machine -- "statemachine/cmd/basic_waypoint (std_msgs/UInt8)" --> planner
-  planner -- "basic_waypoint/done (std_msgs/Bool)" --> state_machine
+  state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> planner
+  planner -- "heartbeat (statemachine_pkg::msg::Answer)" --> state_machine
 
-  state_machine -- "statemachine/cmd/path_planning (std_msgs/UInt8)" --> path_planner
-  path_planner -- "path_planning/ready (std_msgs/Bool)" --> state_machine
-  path_planner -- "path_planning/goal_reached (std_msgs/Bool)" --> state_machine
+  state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> path_planner
+  path_planner -- "heartbeat (statemachine_pkg::msg::Answer)" --> state_machine
 
-  state_machine -- "statemachine/cmd/mapping (std_msgs/UInt8)" --> octomap_server
-  octomap_server -- "mapping/ready (std_msgs/Bool)" --> state_machine
+  state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> octomap_server
+  octomap_server -- "heartbeat (statemachine_pkg::msg::Answer)" --> state_machine
 
-  state_machine -- "statemachine/cmd/controller (std_msgs/UInt8)" --> controller
+  state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> controller
 
-  state_machine -- "statemachine/cmd/lantern_detector (std_msgs::UInt8)" --> detector
+  state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> detector
   detector -- "detected_lanterns (geometry_msgs::msg::PoseArray)" --> state_machine
 
   %% Unterbefehle
@@ -317,6 +316,7 @@ flowchart LR
   unity_ros -- "/true_twist (geometry_msgs::msg::TwistStamped)" --> state_estimate_corruptor
   state_estimate_corruptor -- "/current_state_est (nav_msgs::msg::Odometry)" --> planner
   unity_state -- "current_state_est (nav_msgs::msg::Odometry)" --> controller
+  unity_state -- "current_state_est (nav_msgs::msg::Odometry)" --> state_machine
   controller -- "rotor_speed_cmds (mav_msgs::msg::Actuators)" --> w_to_unity
   w_to_unity -. "UDP 12346" .-> sim_exec
   sim_exec -. "TCP 12347" .-> unity_state
@@ -338,12 +338,12 @@ flowchart LR
   octomap_server -- "octomap_markers (visualization_msgs::msg::MarkerArray)" --> unused
 
   %% Link styling (GitHub + VSCode Mermaid)
-  %% 0,2,5,7,8 = commands from statemachine
-  %% 1,3,4,6,9 = feedback to statemachine
-  linkStyle 0,2,5,7,8 stroke:#e53935,stroke-width:2px
-  linkStyle 1,3,4,6,9 stroke:#1e88e5,stroke-width:2px
-  linkStyle 10,11 stroke:#5a00ba,stroke-width:2px
-  linkStyle 12 stroke:#ba0063,stroke-width:2px
+  %% 0,2,4,6,7 = commands from statemachine
+  %% 1,3,5,8 = feedback to statemachine
+  linkStyle 0,2,4,6,7 stroke:#e53935,stroke-width:2px
+  linkStyle 1,3,5,8 stroke:#1e88e5,stroke-width:2px
+  linkStyle 9,10,11 stroke:#5a00ba,stroke-width:2px
+  linkStyle 12,13 stroke:#ba0063,stroke-width:2px
   linkStyle 22,23,24,25,26,27,28,29,30,31,32 stroke:#9e9e9e,stroke-width:1px,stroke-dasharray:4 3
 
 ```
@@ -382,17 +382,16 @@ sequenceDiagram
     SEC-->>BP: /current_state_est (Odometry)
 
     %% Commands from statemachine
-    SM->>CTRL: cmd/controller (UInt8)
-    SM->>MAP: cmd/mapping (UInt8)
-    SM->>DET: cmd/lantern_detector (UInt8)
-    SM->>BP: cmd/basic_waypoint (UInt8)
-    SM->>PP: cmd/path_planning (UInt8)
+    SM->>CTRL: statemachine/cmd (Command)
+    SM->>MAP: statemachine/cmd (Command)
+    SM->>DET: statemachine/cmd (Command)
+    SM->>BP: statemachine/cmd (Command)
+    SM->>PP: statemachine/cmd (Command)
 
     %% Feedback to statemachine
-    BP-->>SM: basic_waypoint/done (Bool)
-    PP-->>SM: path_planning/ready (Bool)
-    PP-->>SM: path_planning/goal_reached (Bool)
-    MAP-->>SM: mapping/ready (Bool)
+    BP-->>SM: heartbeat (Answer)
+    PP-->>SM: heartbeat (Answer)
+    MAP-->>SM: heartbeat (Answer)
     DET-->>SM: detected_lanterns (PoseArray)
 
     %% Trajectory flow
@@ -410,42 +409,32 @@ sequenceDiagram
 ##### State Diagram
 ```mermaid
 stateDiagram-v2
-  state "BOOT <br> init system" as BOOT
+  state "WAITING<br>wait for nodes" as WAITING
   state "TAKEOFF<br>takeoff sequence" as TAKEOFF
-  state "FOLLOWING<br>follow waypoints" as FOLLOWING
+  state "TRAVELLING<br>fixed trajectory" as TRAVELLING
   state "EXPLORING<br>autonomous explore" as EXPLORING
-  state "HOVERING<br>hold / loiter" as HOVERING
-  state "RETURN_HOME<br>return to exit" as RETURN_HOME
-  state "LANDING<br>landing sequence" as LANDING
-  state "ERROR<br>failure/timeout" as ERROR
-  state "ABORT<br>manual abort" as ABORT
+  state "LAND<br>landing command" as LAND
   state "DONE<br>mission finished" as DONE
+  state "ERROR<br>failure/timeout" as ERROR
+  state "ABORTED<br>manual abort" as ABORTED
 
-  [*] --> BOOT
-  BOOT --> TAKEOFF: start ok
-  TAKEOFF --> FOLLOWING: takeoff done
-  TAKEOFF --> ERROR: takeoff timeout
-  FOLLOWING --> EXPLORING: entrance reached
-  FOLLOWING --> ERROR: navigation timeout
-  EXPLORING --> HOVERING: hold requested
-  EXPLORING --> RETURN_HOME: goal reached
-  HOVERING --> EXPLORING: resume explore
+  [*] --> WAITING
+  WAITING --> TAKEOFF: all nodes online
+  TAKEOFF --> TRAVELLING: checkpoint 0 reached
+  TRAVELLING --> EXPLORING: checkpoint 1 reached
+  EXPLORING --> LAND: planner DONE + 5 lanterns
+  LAND --> DONE: land command sent
 
-  RETURN_HOME --> LANDING: return complete
+  %% Optional global transitions
+  [*] --> ABORTED: abort_requested
+  WAITING --> ABORTED: abort_requested
+  TAKEOFF --> ABORTED: abort_requested
+  TRAVELLING --> ABORTED: abort_requested
+  EXPLORING --> ABORTED: abort_requested
+  LAND --> ABORTED: abort_requested
 
-  LANDING --> DONE: landed
-  LANDING --> ERROR: landing timeout
-
-  %% Global transitions
-  [*] --> ABORT: abort_requested
-  TAKEOFF --> ABORT: abort_requested
-  FOLLOWING --> ABORT: abort_requested
-  EXPLORING --> ABORT: abort_requested
-  HOVERING --> ABORT: abort_requested
-  LANDING --> ABORT: abort_requested
-
-  ERROR --> LANDING: try safe land
-  ABORT --> LANDING: try safe land
+  ERROR --> LAND: try safe land
+  ABORTED --> LAND: try safe land
 
   DONE --> [*]
 

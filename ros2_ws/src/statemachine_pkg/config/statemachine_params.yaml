@@ -9,20 +9,33 @@ state_machine_node:
       topic_heartbeat: "heartbeat"
 
       topic_lantern_detections: "detected_lanterns"
+      current_state_est: "current_state_est"
 
       topic_viz_checkpoint: "statemachine/viz/checkpoint"
-      topic_viz_path: "statemachine/viz/path_flight"
+      topic_viz_path_flight: "statemachine/viz/path_flight"
     time:
       alive_tol_sec: 10.0
       pub_state_loop_sec: 1.0
+      boot_timeout_sec: 60.0
     lanterns:
       lantern_merge_dist_m: 0.2
     checkpoints:
-      [-38.0, 10.0, 15.0,
-       -320.0, 8.0, 17.0,
-       38.0, 10.0, 6.6]
+      positions:
+        [-38.0, 10.0, 15.0,
+        -320.0, 8.0, 17.0]
+      reach_dist_m: 0.5
+    viz:
+      path_sample_dist_m: 0.2
     nodes:
-      ["lantern_detector_node",
-       "path_planner_node",
-       "controller_node"]
+      ["planner",
+       "sampler",
+       "path_planner",
+       "controller_node",
+       "lantern_detector",
+       "octomap_server"]
+    node_roles:
+      controller_index: 3
+      waypoint_index: 0
+      planner_index: 2
+      lantern_index: 4
     
