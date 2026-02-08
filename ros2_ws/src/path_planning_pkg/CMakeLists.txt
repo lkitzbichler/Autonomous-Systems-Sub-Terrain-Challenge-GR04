@@ -20,7 +20,14 @@ find_package(Eigen3 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(OMPL REQUIRED ompl)
 
-add_executable(pathplanner_node src/pathplanner.cpp)
+add_executable(
+  pathplanner_node
+  src/path_planner_node.cpp
+  src/exploration_map.cpp
+  src/planner_ompl.cpp
+  src/trajectory_generation.cpp
+  src/visualization.cpp
+)
 ament_target_dependencies(
   pathplanner_node
   rclcpp
@@ -36,6 +43,12 @@ ament_target_dependencies(
 target_link_libraries(pathplanner_node Eigen3::Eigen)
 target_link_libraries(pathplanner_node ${OCTOMAP_LIBRARIES})
 target_link_libraries(pathplanner_node ${OMPL_LIBRARIES})
+target_include_directories(
+  pathplanner_node
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
 target_include_directories(pathplanner_node SYSTEM PUBLIC ${OMPL_INCLUDE_DIRS})
 
 
@@ -52,6 +65,9 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS pathplanner_node DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+
+ament_export_include_directories(include)
 
 ament_package()

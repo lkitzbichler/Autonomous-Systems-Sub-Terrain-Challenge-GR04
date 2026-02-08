@@ -1,5 +1,7 @@
 #pragma once
 
+#include "path_planning_pkg/modules.hpp"
+
 #include <rclcpp/rclcpp.hpp>
 
 #include <nav_msgs/msg/odometry.hpp>
@@ -16,29 +18,35 @@
 
 #include <octomap/octomap.h>
 
+#include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_set>
 #include <vector>
-#include <deque>
 
 class PathPlannerNode : public rclcpp::Node {
 public:
   PathPlannerNode();
 
 private:
-  struct KeyHash {
-    std::size_t operator()(const octomap::OcTreeKey &key) const noexcept;
-  };
-  struct KeyEq {
-    bool operator()(const octomap::OcTreeKey &a,
-                    const octomap::OcTreeKey &b) const noexcept;
-  };
-
-  struct FrontierCluster {
-    std::vector<octomap::OcTreeKey> cells;
-    Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
-  };
+  static bool coordInBounds(const octomap::point3d &coord,
+                            const octomap::point3d &min,
+                            const octomap::point3d &max);
+  static bool isFreeCoordInMap(const octomap::OcTree *tree,
+                               const octomap::point3d &coord,
+                               const octomap::point3d &min,
+                               const octomap::point3d &max,
+                               double clearance_radius);
+  static bool isFreeKeyInMap(const octomap::OcTree *tree,
+                             const octomap::OcTreeKey &key,
+                             const octomap::point3d &min,
+                             const octomap::point3d &max,
+                             double clearance_radius);
+  static bool isFrontierKeyInMap(const octomap::OcTree *tree,
+                                 const octomap::OcTreeKey &key,
+                                 const octomap::point3d &min,
+                                 const octomap::point3d &max);
 
   void onCommand(const std_msgs::msg::String::SharedPtr msg);
   void onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg);
