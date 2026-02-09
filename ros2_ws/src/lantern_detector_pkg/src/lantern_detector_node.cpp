@@ -1,4 +1,5 @@
 #include "lantern_detector_pkg/lantern_detector_node.hpp"
+#include "protocol.hpp"
 
 #include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
@@ -7,6 +8,7 @@
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
 #include <algorithm>
+#include <chrono>
 
 namespace lantern_detector {
 
@@ -28,12 +30,18 @@ LanternDetectorNode::LanternDetectorNode(const rclcpp::NodeOptions& options)
   max_depth_ = this->declare_parameter("max_depth", 50.0);
   marker_scale_ = this->declare_parameter("marker_scale", 0.5);
   marker_color_ = this->declare_parameter("marker_color", std::vector<double>{1.0, 1.0, 0.0, 1.0});
+  heartbeat_topic_ = this->declare_parameter("heartbeat_topic", std::string("heartbeat"));
+  heartbeat_period_sec_ = this->declare_parameter("heartbeat_period_sec", 1.0);
 
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
   lantern_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>(output_topic, 10);
   marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(marker_topic, 10);
+  heartbeat_pub_ = this->create_publisher<statemachine_pkg::msg::Answer>(heartbeat_topic_, 10);
+  heartbeat_timer_ = this->create_wall_timer(
+      std::chrono::duration<double>(heartbeat_period_sec_),
+      std::bind(&LanternDetectorNode::publish_heartbeat, this));
 
   auto qos = rclcpp::SensorDataQoS().get_rmw_qos_profile();
   
@@ -50,6 +58,17 @@ LanternDetectorNode::LanternDetectorNode(const rclcpp::NodeOptions& options)
       });
   
   RCLCPP_INFO(this->get_logger(), "Lantern Detector Node initialized with ApproximateTime synchronization.");
+}
+
+void LanternDetectorNode::publish_heartbeat() {
+  statemachine_pkg::msg::Answer hb;
+  hb.node_name = this->get_name();
+  hb.state = static_cast<uint8_t>(statemachine_pkg::protocol::AnswerStates::RUNNING);
+  hb.info = "RUNNING";
+  const auto now = this->now();
+  hb.timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
+  hb.timestamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
+  heartbeat_pub_->publish(hb);
 }
 
 void LanternDetectorNode::synchronized_callback(

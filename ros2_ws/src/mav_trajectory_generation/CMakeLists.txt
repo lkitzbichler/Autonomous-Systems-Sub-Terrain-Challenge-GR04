@@ -23,6 +23,7 @@ find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(mav_planning_msgs REQUIRED)
+find_package(statemachine_pkg REQUIRED)
 # Pure C++ library; no ROS-specific deps needed here unless your code uses them.
 # If you add rclcpp or others, list them here and in ament_target_dependencies.
 find_package(yaml-cpp REQUIRED)
@@ -118,6 +119,11 @@ ament_target_dependencies(polynomial_timing_evaluation
 add_executable(trajectory_sampler_node
   src/trajectory_sampler_node.cpp
 )
+target_include_directories(trajectory_sampler_node
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/mav_trajectory_generation>
+)
 target_link_libraries(trajectory_sampler_node
   ${PROJECT_NAME}
 )
@@ -127,6 +133,7 @@ ament_target_dependencies(trajectory_sampler_node
   std_srvs
   trajectory_msgs
   mav_planning_msgs
+  statemachine_pkg
   Eigen3
   rclcpp
 )

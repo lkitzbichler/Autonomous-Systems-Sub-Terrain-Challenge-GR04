@@ -1,11 +1,13 @@
 #pragma once
 
+#include "statemachine_pkg/protocol.hpp"
 #include "statemachine_pkg/msg/answer.hpp"
 #include "statemachine_pkg/msg/command.hpp"
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -18,45 +20,22 @@
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <octomap_msgs/msg/octomap.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
-#include <std_msgs/msg/bool.hpp>
-#include <std_msgs/msg/string.hpp>
-#include <std_msgs/msg/u_int8.hpp>
+
+namespace octomap
+{
+class OcTree;
+}
 
 class StateMachine : public rclcpp::Node
 {
-private: // STATES & COMMANDS
-    enum class MissionStates : uint8_t {
-        WAITING = 0,        // Waiting for ready signals to start mission
-        TAKEOFF = 1,        // Takeoff from start position
-        TRAVELLING = 2,     // Use basic_waypoint to reach cave entrance
-        EXPLORING = 3,      // Autonomous exploration (path planning)
-        RETURN_HOME = 4,    // Return to exit/home position
-        LAND = 5,           // Land and stop
-        DONE = 6,           // Mission finished
-        ERROR = 98,         // Error state
-        ABORTED = 99        // Manual abort
-    };
-
-    enum class Commands : uint8_t {
-        TAKEOFF = 0,        // Takeoff command
-        START = 1,          // Start TRAVVELING
-        SWITCH_TO_EXPLORE = 2, // Switch to EXPLORING
-        HOLD = 3,           // Hold command -> Stop immediately -> Hover
-        RETURN_HOME = 4,    // Return home command
-        LAND = 5,           // Land command
-        ABORT = 99,         // Stop node 
-        NONE = 100          // No command
-    };
-
-    enum class AnswerStates : uint8_t {
-        RUNNING = 0,        // Node is actively working
-        DONE = 1,           // Only used for planner completion
-        // READY = 2,       // Disabled (not used)
-        // ERROR = 3,       // Disabled (not used)
-        UNKNOWN = 255       // Unknown/undefined status
-    };
+public: // STATES & COMMANDS
+    using MissionStates = statemachine_pkg::protocol::MissionStates;
+    using Commands = statemachine_pkg::protocol::Commands;
+    using AnswerStates = statemachine_pkg::protocol::AnswerStates;
 
 private: // VARIABLES and STRUCTS
     /// Helper struct to track node heartbeats
@@ -85,20 +64,20 @@ private: // VARIABLES and STRUCTS
     std::vector<Eigen::Vector3d> checkpoint_positions_; // List of checkpoint positions for visualization
     std::vector<Eigen::Vector3d> checkpoint_positions_base_; // Static checkpoints from params (without takeoff start)
     
-    bool error_ {false}; // Flag to indicate if an error has occurred
-    bool abort_requested_ {false}; // Flag to indicate if an abort has been requested
     bool checkpoint_reached_ {false}; // Flag to indicate a checkpoint was reached
     short current_checkpoint_index_ {-1}; // Index of the current checkpoint being targeted, -1 if none
     bool start_checkpoint_inserted_{false}; // True once the takeoff checkpoint is inserted at list front
+    short landing_checkpoint_index_{-1}; // Index of the active landing checkpoint
     
     bool boot_timeout_reported_ {false}; // Avoid spamming boot-timeout logs
     bool has_current_pose_{false}; // True once current pose has been received
+    bool has_octomap_{false}; // True once an octomap has been received
     geometry_msgs::msg::Point current_position_; // Latest position from state estimate
     std::string current_pose_frame_id_{"world"}; // Frame for current pose/path
     std::vector<geometry_msgs::msg::Point> path_points_; // Flight path points for visualization
     bool planner_done_{false}; // Planner DONE flag (used in exploring)
+    std::shared_ptr<octomap::OcTree> octree_; // Latest octomap for landing ground estimation
     rclcpp::TimerBase::SharedPtr timer_; // Timer for periodic tasks like state publishing and heartbeat checks
-    std::chrono::duration<double> period_alive_{1.0}; // Duration after which a node is considered dead if no heartbeat is received
 
 private: // SUBSCRIBERS, PUBLISHERS, TIMERS
     // Publishers
@@ -111,6 +90,7 @@ private: // SUBSCRIBERS, PUBLISHERS, TIMERS
     rclcpp::Subscription<statemachine_pkg::msg::Answer>::SharedPtr sub_heartbeat_;
     rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr sub_lantern_detections_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_current_state_est_;
+    rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr sub_octomap_;
 
 private: // PARAMETERS
     // LISTS
@@ -125,6 +105,9 @@ private: // PARAMETERS
     double boot_timeout_sec_;               // Max time allowed to wait for nodes in WAITING/BOOT
     double checkpoint_reach_dist_m_;        // Distance threshold for reaching a checkpoint
     double path_sample_dist_m_;             // Min distance between path samples
+    double landing_xy_radius_m_;            // XY search radius for local ground estimation
+    double landing_clearance_m_;            // Clearance above estimated ground for landing target
+    double landing_probe_depth_m_;          // Max downward ray distance for ground estimation
 
     // LANTERNS
     double min_lantern_dist_;               // Minimum distance to consider a new lantern detection as the same as an existing track and merge it
@@ -135,6 +118,7 @@ private: // PARAMETERS
     std::string topic_cmd_;                 // publish commands for other nodes
     std::string topic_heartbeat_;           // subscribe to check if a node is dead
     std::string topic_current_state_est_;   // subscribe to current state estimate
+    std::string topic_octomap_;             // subscribe to octomap map data
 
     // Lanterns
     std::string topic_lantern_detections_;  // subscribe to lantern detections
@@ -151,7 +135,6 @@ private: // PARAMETERS
     int node_controller_index_{-1};         // Controller node index
     int node_waypoint_index_{-1};           // Basic waypoint node index
     int node_planner_index_{-1};            // Path planner node index
-    int node_lantern_index_{-1};            // Lantern detector node index
 
 public: //CONSTRUCTOR & METHODS
     StateMachine();                         // Constructor
@@ -161,9 +144,11 @@ public: //CONSTRUCTOR & METHODS
     void changeState(MissionStates new_state, const std::string &reason);   // Change the current state and publish it, with a reason for logging
 
     void sendCommand(std::string recv_node, Commands cmd);  // Send a command to a specific node, with logging
+    void sendCommandWithTarget(const std::string &recv_node, Commands cmd, const geometry_msgs::msg::Point &target);  // Send a command with an optional target position
     void handleAnswer(const statemachine_pkg::msg::Answer::SharedPtr msg);  // Handle incoming answers/heartbeats from nodes to update their alive status
 
     void onLanternDetections(const geometry_msgs::msg::PoseArray::SharedPtr msg);   // Handle lantern detections
+    void onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg); // Update local octomap cache
     void associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, geometry_msgs::msg::Point &mean_out, size_t &count_out);  // Associate a new lantern detection with existing tracks or create a new track, returning whether it's new, the mean position, and count of detections
     void onCurrentStateEst(const nav_msgs::msg::Odometry::SharedPtr msg); // Update current position from state estimate
 
@@ -173,6 +158,8 @@ private: // HELPER METHODS
     void checkHeartbeats();                 // Check node heartbeats and mark dead nodes
     void checkCheckpoints();                // Evaluate checkpoint progress
     void tryInsertStartCheckpoint();        // Insert takeoff checkpoint once a valid start pose is available
+    bool estimateGroundHeight(double &ground_z_out) const; // Estimate ground height below current UAV position from octomap
+    bool prepareLandingCheckpoint(geometry_msgs::msg::Point &target_out); // Build landing target and append/update dynamic landing checkpoint
     void handleFlagEvents();                // React to flag changes (edge-triggered)
     void publishPathViz();                  // Publish flight path visualization
     void publishCheckpointViz();            // Publish checkpoint markers

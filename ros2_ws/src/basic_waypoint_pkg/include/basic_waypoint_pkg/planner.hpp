@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <iostream>
+#include <vector>
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
@@ -29,7 +30,22 @@ public:
 
   void setMaxSpeed(double max_v);
 
+  /**
+   * @brief Plan trajectory using the waypoints from parameters.
+   */
   bool planTrajectory(mav_trajectory_generation::Trajectory * trajectory);
+
+  /**
+   * @brief Plan trajectory using an explicit waypoint list.
+   * @param waypoint_list Flat list [x1, y1, z1, x2, y2, z2, ...].
+   * @param stop_index Index for full stop constraints (-1 to ignore).
+   * @param trajectory Output trajectory.
+   * @return True if planning succeeded.
+   */
+  bool planTrajectoryWithWaypoints(
+    const std::vector<double> & waypoint_list,
+    int stop_index,
+    mav_trajectory_generation::Trajectory * trajectory);
 
   bool planTrajectory(
     const Eigen::VectorXd & start_pos,
@@ -54,6 +70,7 @@ private:
   Eigen::Affine3d current_pose_;
   Eigen::Vector3d current_velocity_;
   Eigen::Vector3d current_angular_velocity_;
+  bool has_current_pose_{false};
 
   double max_v_;      // m/s
   double max_a_;      // m/s^2

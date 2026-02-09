@@ -49,6 +49,9 @@ void BasicPlanner::uavOdomCallback(const nav_msgs::msg::Odometry::SharedPtr odom
 
   // store current velocity
   tf2::fromMsg(odom->twist.twist.linear, current_velocity_);
+
+  // mark pose as valid
+  has_current_pose_ = true;
 }
 
 // Method to set maximum speed.
@@ -62,6 +65,34 @@ void BasicPlanner::setMaxSpeed(const double max_v)
 bool BasicPlanner::planTrajectory(
   mav_trajectory_generation::Trajectory * trajectory)
 {
+  // Step 0: Require a valid current pose
+  if (!has_current_pose_) {
+    RCLCPP_WARN(node_->get_logger(), "No valid odometry yet, cannot plan trajectory.");
+    return false;
+  }
+
+  // Step 1: Load waypoints and stop index from parameters
+  std::vector<double> waypoint_list;
+  int stop_index = -1;
+  node_->get_parameter("stop_index", stop_index);
+  node_->get_parameter("waypoints", waypoint_list);
+
+  // Step 2: Delegate to explicit waypoint planner
+  return planTrajectoryWithWaypoints(waypoint_list, stop_index, trajectory);
+}
+
+// Plans a trajectory from the current position using an explicit waypoint list
+bool BasicPlanner::planTrajectoryWithWaypoints(
+  const std::vector<double> & waypoint_list,
+  int stop_index,
+  mav_trajectory_generation::Trajectory * trajectory)
+{
+  // Step 0: Require a valid current pose
+  if (!has_current_pose_) {
+    RCLCPP_WARN(node_->get_logger(), "No valid odometry yet, cannot plan trajectory.");
+    return false;
+  }
+
   // 3 Dimensional trajectory => through Cartesian space, no orientation
   const int dimension = 3;
 
@@ -80,8 +111,7 @@ bool BasicPlanner::planTrajectory(
   /******* Configure start point *******/
   // set start point constraints to current position and set all derivatives to zero
   start.makeStartOrEnd(
-    Eigen::Vector3d(-38.02, 10.0, 6.57),
-    //current_pose_.translation(), //TODO: adjust this maybe
+    current_pose_.translation(),
     derivative_to_optimize);
 
   // set start point's velocity to be constrained to current velocity
@@ -94,12 +124,6 @@ bool BasicPlanner::planTrajectory(
 
   /******* Configure trajectory (intermediate waypoints) *******/
   // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  std::vector<double> waypoint_list;
-  int stop_index_ = -1;
-  
-  node_->get_parameter("stop_index", stop_index_);
-  node_->get_parameter("waypoints", waypoint_list);
-
   if (waypoint_list.size() < 3 || (waypoint_list.size() % 3) != 0) {
     RCLCPP_ERROR(node_->get_logger(), "Invalid waypoints param (size=%zu)", waypoint_list.size());
     return false;
@@ -117,7 +141,7 @@ bool BasicPlanner::planTrajectory(
     middle.addConstraint(
       mav_trajectory_generation::derivative_order::POSITION, pos);
 
-    if (static_cast<int>(i) == stop_index_) {
+    if (static_cast<int>(i) == stop_index) {
       middle.addConstraint(
         mav_trajectory_generation::derivative_order::VELOCITY,
         Eigen::Vector3d::Zero());
@@ -145,7 +169,7 @@ bool BasicPlanner::planTrajectory(
     mav_trajectory_generation::derivative_order::VELOCITY,
     Eigen::Vector3d::Zero());
 
-  if (stop_index_ == static_cast<int>(waypoint_count - 1)) {
+  if (stop_index == static_cast<int>(waypoint_count - 1)) {
     end.addConstraint(
       mav_trajectory_generation::derivative_order::ACCELERATION,
       Eigen::Vector3d::Zero());

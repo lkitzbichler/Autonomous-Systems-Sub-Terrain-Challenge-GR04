@@ -1,4 +1,5 @@
 #include "controller_pkg/controller_node.hpp"
+#include "protocol.hpp"
 #include <rclcpp/rclcpp.hpp>
 #include <cmath>
 #include <chrono>
@@ -33,19 +34,29 @@ ControllerNode::ControllerNode()
   kv = this->declare_parameter<double>("kv", 1.0);
   kr = this->declare_parameter<double>("kr", 1.0);
   komega = this->declare_parameter<double>("komega", 1.0);
+  command_topic_ = this->declare_parameter<std::string>("command_topic", "statemachine/cmd");
+  heartbeat_topic_ = this->declare_parameter<std::string>("heartbeat_topic", "heartbeat");
+  heartbeat_period_sec_ = this->declare_parameter<double>("heartbeat_period_sec", 1.0);
 
   // Initialization of ROS elements
   motor_pub_= this->create_publisher<mav_msgs::msg::Actuators>("rotor_speed_cmds", 10);
+  heartbeat_pub_ = this->create_publisher<statemachine_pkg::msg::Answer>(heartbeat_topic_, 10);
   desired_sub_ = this->create_subscription<trajectory_msgs::msg::MultiDOFJointTrajectory>(
     "command/trajectory", rclcpp::QoS(10),
     std::bind(&ControllerNode::onDesiredState, this, std::placeholders::_1));
   current_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
     "current_state_est", rclcpp::QoS(10),
     std::bind(&ControllerNode::onCurrentState, this, std::placeholders::_1));
+  command_sub_ = this->create_subscription<statemachine_pkg::msg::Command>(
+    command_topic_, 10,
+    std::bind(&ControllerNode::onCommand, this, std::placeholders::_1));
   auto period = std::chrono::duration<double>(1.0 / hz);
   timer_= this->create_wall_timer(
     std::chrono::duration_cast<std::chrono::nanoseconds>(period),
     std::bind(&ControllerNode::controlLoop, this) );
+  heartbeat_timer_ = this->create_wall_timer(
+    std::chrono::duration<double>(heartbeat_period_sec_),
+    std::bind(&ControllerNode::publishHeartbeat, this));
 
   // Get parameters
   kx = this->get_parameter("kx").as_double();
@@ -126,7 +137,55 @@ void ControllerNode::onCurrentState(const nav_msgs::msg::Odometry::SharedPtr cur
     omega = R.transpose() * omega_world;
 }
 
+void ControllerNode::onCommand(const statemachine_pkg::msg::Command::SharedPtr cmd_msg){
+    // Step 1: Validate incoming command and filter by target name.
+    if (!cmd_msg) {
+      return;
+    }
+    if (cmd_msg->target != this->get_name()) {
+      return;
+    }
+
+    // Step 2: Toggle controller output according to mission-level command.
+    switch (cmd_msg->command) {
+      case static_cast<uint8_t>(statemachine_pkg::protocol::Commands::START):
+        control_enabled_ = true;
+        RCLCPP_INFO(this->get_logger(), "[cmd] START");
+        break;
+      case static_cast<uint8_t>(statemachine_pkg::protocol::Commands::HOLD):
+      case static_cast<uint8_t>(statemachine_pkg::protocol::Commands::LAND):
+      case static_cast<uint8_t>(statemachine_pkg::protocol::Commands::ABORT):
+        control_enabled_ = false;
+        publishZeroMotors();
+        RCLCPP_INFO(this->get_logger(), "[cmd] HOLD/LAND/ABORT");
+        break;
+      default:
+        RCLCPP_INFO(this->get_logger(), "[cmd] ignored id=%u", cmd_msg->command);
+        break;
+    }
+}
+
+void ControllerNode::publishHeartbeat(){
+    statemachine_pkg::msg::Answer hb;
+    hb.node_name = this->get_name();
+    hb.state = static_cast<uint8_t>(statemachine_pkg::protocol::AnswerStates::RUNNING);
+    hb.info = control_enabled_ ? "RUNNING_ACTIVE" : "RUNNING_HOLD";
+    const auto now = this->now();
+    hb.timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
+    hb.timestamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
+    heartbeat_pub_->publish(hb);
+}
+
+void ControllerNode::publishZeroMotors(){
+    mav_msgs::msg::Actuators cmd;
+    cmd.angular_velocities.assign(4, 0.0);
+    motor_pub_->publish(cmd);
+}
+
 void ControllerNode::controlLoop(){
+    if (!control_enabled_) {
+      return;
+    }
     if (!received_desired) {
       return;
     }

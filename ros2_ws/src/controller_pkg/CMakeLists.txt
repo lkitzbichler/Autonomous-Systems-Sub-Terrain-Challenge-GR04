@@ -12,11 +12,13 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(mav_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
+find_package(statemachine_pkg REQUIRED)
 
 # Eigen
 find_package(eigen3_cmake_module QUIET)
@@ -42,8 +44,10 @@ ament_target_dependencies(controller_node
   rclcpp
   std_msgs
   geometry_msgs
+  nav_msgs
   mav_msgs
   trajectory_msgs
+  statemachine_pkg
   tf2
   tf2_ros
   tf2_eigen

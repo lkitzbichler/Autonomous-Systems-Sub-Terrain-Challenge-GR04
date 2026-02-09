@@ -9,6 +9,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(statemachine_pkg REQUIRED)
 find_package(nav2_core REQUIRED)
 find_package(nav2_util REQUIRED)
 find_package(nav2_msgs REQUIRED)
@@ -18,6 +19,7 @@ add_executable(pathplanner_node src/pathplanner.cpp)
 ament_target_dependencies(pathplanner_node
   rclcpp
   std_msgs
+  statemachine_pkg
   nav2_core
   nav2_util
   nav2_msgs

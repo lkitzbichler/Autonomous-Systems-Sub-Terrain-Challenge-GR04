@@ -3,11 +3,16 @@
 #include "statemachine_pkg/msg/command.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <limits>
 #include <sstream>
 #include <ctime>
+
+#include <octomap/OcTree.h>
+#include <octomap/octomap.h>
+#include <octomap_msgs/conversions.h>
 
 namespace {
 
@@ -21,6 +26,7 @@ double distance3(const geometry_msgs::msg::Point &a, const geometry_msgs::msg::P
 
 constexpr double kTakeoffHeightM = 5.0; // Fixed takeoff height above start position
 constexpr double kMinStartPosNormM = 1e-3; // Reject near-zero start pose (0,0,0) as invalid
+constexpr double kMinLandingDescentM = 0.05; // Guard against non-descending landing targets
 
 } // namespace
 
@@ -42,11 +48,13 @@ StateMachine::StateMachine() : Node("state_machine_node")
     this->boot_timeout_sec_ = declare_parameter<double>("time.boot_timeout_sec", 60.0);
     this->path_sample_dist_m_ = declare_parameter<double>("viz.path_sample_dist_m", 0.2);
     this->checkpoint_reach_dist_m_ = declare_parameter<double>("checkpoints.reach_dist_m", 0.5);
+    this->landing_xy_radius_m_ = declare_parameter<double>("landing.xy_radius_m", 0.5);
+    this->landing_clearance_m_ = declare_parameter<double>("landing.clearance_m", 0.2);
+    this->landing_probe_depth_m_ = declare_parameter<double>("landing.probe_depth_m", 30.0);
     // Node role indices (refer to entries in node_list_)
     this->node_controller_index_ = declare_parameter<int>("node_roles.controller_index", -1);
     this->node_waypoint_index_ = declare_parameter<int>("node_roles.waypoint_index", -1);
     this->node_planner_index_ = declare_parameter<int>("node_roles.planner_index", -1);
-    this->node_lantern_index_ = declare_parameter<int>("node_roles.lantern_index", -1);
     // Lantern detections
     this->min_lantern_dist_ = declare_parameter<double>("lanterns.lantern_merge_dist_m", 0.2);
     // Logging paths
@@ -59,6 +67,7 @@ StateMachine::StateMachine() : Node("state_machine_node")
     this->topic_heartbeat_ = declare_parameter<std::string>("topics.topic_heartbeat", "statemachine/heartbeat");
     this->topic_lantern_detections_ = declare_parameter<std::string>("topics.topic_lantern_detections", "detected_lanterns");
     this->topic_current_state_est_ = declare_parameter<std::string>("topics.current_state_est", "current_state_est");
+    this->topic_octomap_ = declare_parameter<std::string>("topics.topic_octomap", "octomap_binary");
     this->topic_viz_checkpoint = declare_parameter<std::string>("topics.topic_viz_checkpoint", "statemachine/viz/checkpoint");
     this->topic_viz_path_flight = declare_parameter<std::string>("topics.topic_viz_path_flight", "statemachine/viz/path_flight");
 
@@ -72,9 +81,13 @@ StateMachine::StateMachine() : Node("state_machine_node")
     this->sub_heartbeat_ = this->create_subscription<statemachine_pkg::msg::Answer>(topic_heartbeat_, 10, std::bind(&StateMachine::handleAnswer, this, std::placeholders::_1));
     this->sub_lantern_detections_ = this->create_subscription<geometry_msgs::msg::PoseArray>(topic_lantern_detections_, 10, std::bind(&StateMachine::onLanternDetections, this, std::placeholders::_1));
     this->sub_current_state_est_ = this->create_subscription<nav_msgs::msg::Odometry>(topic_current_state_est_, 10, std::bind(&StateMachine::onCurrentStateEst, this, std::placeholders::_1));
+    this->sub_octomap_ = this->create_subscription<octomap_msgs::msg::Octomap>(topic_octomap_, 1, std::bind(&StateMachine::onOctomap, this, std::placeholders::_1));
 
     // Create Timers ##################################################################################
-    timer_ = this->create_wall_timer(std::chrono::milliseconds(1000), std::bind(&StateMachine::onTimer, this));
+    const double loop_sec = std::max(0.01, pub_state_loop_sec_);
+    timer_ = this->create_wall_timer(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(loop_sec)),
+        std::bind(&StateMachine::onTimer, this));
 
     // Initialize node heartbeat list from config ####################################################
     nodes_.clear();
@@ -94,6 +107,7 @@ StateMachine::StateMachine() : Node("state_machine_node")
             checkpoint_list_[i + 2]);
     }
     checkpoint_positions_base_ = checkpoint_positions_; // Store static list before runtime insertion
+    state_enter_time_ = this->now(); // Start WAITING timeout from node startup time
 }
 
 StateMachine::~StateMachine()
@@ -147,28 +161,48 @@ void StateMachine::changeState(MissionStates new_state, const std::string &reaso
     const std::string node_controller = nodeNameByIndex(node_controller_index_);
     const std::string node_waypoint = nodeNameByIndex(node_waypoint_index_);
     const std::string node_planner = nodeNameByIndex(node_planner_index_);
-    const std::string node_lantern = nodeNameByIndex(node_lantern_index_);
 
     switch (state_) {
         case MissionStates::WAITING:
             if (!node_controller.empty()) sendCommand(node_controller, Commands::HOLD);
             break;
         case MissionStates::TAKEOFF:
-            if (!node_controller.empty()) sendCommand(node_controller, Commands::TAKEOFF);
+            if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
+            if (!node_waypoint.empty() && !checkpoint_positions_.empty()) {
+                geometry_msgs::msg::Point target;
+                target.x = checkpoint_positions_.front().x();
+                target.y = checkpoint_positions_.front().y();
+                target.z = checkpoint_positions_.front().z();
+                sendCommandWithTarget(node_waypoint, Commands::TAKEOFF, target);
+            } else if (!node_waypoint.empty()) {
+                logEvent("[TAKEOFF] no checkpoint available for takeoff target");
+            }
             break;
         case MissionStates::TRAVELLING:
+            if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
             if (!node_waypoint.empty()) sendCommand(node_waypoint, Commands::START);
             break;
         case MissionStates::EXPLORING:
             planner_done_ = false; // Reset planner completion flag
+            if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
             if (!node_planner.empty()) sendCommand(node_planner, Commands::START);
-            if (!node_lantern.empty()) sendCommand(node_lantern, Commands::START);
             break;
         case MissionStates::RETURN_HOME:
+            if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
             if (!node_planner.empty()) sendCommand(node_planner, Commands::RETURN_HOME);
             break;
         case MissionStates::LAND:
-            if (!node_controller.empty()) sendCommand(node_controller, Commands::LAND);
+            landing_checkpoint_index_ = -1; // Force fresh landing target creation on LAND entry
+            if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
+            if (!node_waypoint.empty()) {
+                geometry_msgs::msg::Point target;
+                if (prepareLandingCheckpoint(target)) {
+                    sendCommandWithTarget(node_waypoint, Commands::LAND, target);
+                } else {
+                    logEvent("[LAND] ground estimation failed, landing command not sent");
+                    RCLCPP_WARN(this->get_logger(), "[LAND] ground estimation failed, landing command not sent");
+                }
+            }
             break;
         case MissionStates::DONE:
         case MissionStates::ERROR:
@@ -176,7 +210,6 @@ void StateMachine::changeState(MissionStates new_state, const std::string &reaso
             if (!node_controller.empty()) sendCommand(node_controller, Commands::HOLD);
             if (!node_waypoint.empty()) sendCommand(node_waypoint, Commands::HOLD);
             if (!node_planner.empty()) sendCommand(node_planner, Commands::HOLD);
-            if (!node_lantern.empty()) sendCommand(node_lantern, Commands::HOLD);
             break;
     }
 }
@@ -191,6 +224,29 @@ void StateMachine::sendCommand(std::string recv_node, Commands cmd)
     statemachine_pkg::msg::Command msg; // Command container for one target node
     msg.target = recv_node;             // Target node name
     msg.command = static_cast<uint8_t>(cmd); // Encode enum to message field
+    msg.has_target = false;             // No target by default
+    const auto now = this->now();       // Timestamp for tracing/debugging
+    msg.stamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
+    msg.stamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
+
+    pub_cmd_->publish(msg); // Publish on shared command topic
+    this->last_cmd_= cmd; // Store last command for potential state-based logic 
+    logCommand(recv_node, cmd); // Persist command in event log
+}
+
+/**
+ * @brief Send a command to a specific node with a target position.
+ * @param recv_node Target node name.
+ * @param cmd Command enum to send.
+ * @param target Target position for the command.
+ */
+void StateMachine::sendCommandWithTarget(const std::string &recv_node, Commands cmd, const geometry_msgs::msg::Point &target)
+{
+    statemachine_pkg::msg::Command msg; // Command container for one target node
+    msg.target = recv_node;             // Target node name
+    msg.command = static_cast<uint8_t>(cmd); // Encode enum to message field
+    msg.has_target = true;              // Explicit target payload
+    msg.target_pos = target;            // Target position
     const auto now = this->now();       // Timestamp for tracing/debugging
     msg.stamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
     msg.stamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
@@ -269,6 +325,40 @@ void StateMachine::handleAnswer(const statemachine_pkg::msg::Answer::SharedPtr m
     if (status == AnswerStates::DONE) {
         planner_done_ = true;
     }
+}
+
+/**
+ * @brief Cache the latest binary octomap message for ground estimation.
+ * @param msg Incoming octomap message.
+ */
+void StateMachine::onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg)
+{
+    // Step 1: Validate input
+    if (!msg) {
+        return;
+    }
+    if (!msg->binary) {
+        RCLCPP_WARN(this->get_logger(), "Received non-binary octomap on '%s', expected binary map.", topic_octomap_.c_str());
+        return;
+    }
+
+    // Step 2: Convert message to OcTree
+    octomap::AbstractOcTree *tree_raw = octomap_msgs::binaryMsgToMap(*msg);
+    if (!tree_raw) {
+        RCLCPP_WARN(this->get_logger(), "Failed to convert octomap message.");
+        return;
+    }
+
+    auto *tree = dynamic_cast<octomap::OcTree *>(tree_raw);
+    if (!tree) {
+        delete tree_raw;
+        RCLCPP_WARN(this->get_logger(), "Octomap conversion yielded unsupported tree type.");
+        return;
+    }
+
+    // Step 3: Store map
+    octree_.reset(tree);
+    has_octomap_ = true;
 }
 
 // #################################################################################################
@@ -401,10 +491,18 @@ void StateMachine::onTimer()
     checkHeartbeats();
     checkCheckpoints();
     handleFlagEvents();
-    // Step: If LAND is requested, finalize immediately (controller is already off)
-    if (state_ == MissionStates::LAND) {
-        changeState(MissionStates::DONE, "land command sent");
+
+    // Step 5: Retry LAND target creation while waiting for octomap/current pose
+    if (state_ == MissionStates::LAND && landing_checkpoint_index_ < 0) {
+        const std::string node_waypoint = nodeNameByIndex(node_waypoint_index_);
+        if (!node_waypoint.empty()) {
+            geometry_msgs::msg::Point target;
+            if (prepareLandingCheckpoint(target)) {
+                sendCommandWithTarget(node_waypoint, Commands::LAND, target);
+            }
+        }
     }
+
     publishPathViz();
     publishCheckpointViz();
 }
@@ -415,9 +513,21 @@ void StateMachine::onTimer()
 void StateMachine::checkHeartbeats()
 {
     const auto now = this->now();
+    const auto graph_nodes = this->get_node_names();
 
     // Step 1: Update alive flags based on last heartbeat
     for (auto &node : nodes_) {
+        // octomap_server is an external node without our custom heartbeat publisher.
+        // For this node we treat ROS graph presence as "alive".
+        if (node.name == "octomap_server") {
+            const auto it = std::find(graph_nodes.begin(), graph_nodes.end(), node.name);
+            node.is_alive = (it != graph_nodes.end());
+            if (node.is_alive) {
+                node.last_heartbeat = now;
+            }
+            continue;
+        }
+
         if (node.last_heartbeat.nanoseconds() == 0) {
             node.is_alive = false;
         } else {
@@ -526,6 +636,8 @@ void StateMachine::handleFlagEvents()
             changeState(MissionStates::TRAVELLING, "checkpoint 0 reached");
         } else if (state_ == MissionStates::TRAVELLING && reached_index == 1) {
             changeState(MissionStates::EXPLORING, "checkpoint 1 reached");
+        } else if (state_ == MissionStates::LAND && reached_index == landing_checkpoint_index_) {
+            changeState(MissionStates::DONE, "landing checkpoint reached");
         }
 
         // Step 2: Reset flag to allow next checkpoint event
@@ -688,6 +800,103 @@ void StateMachine::tryInsertStartCheckpoint()
     current_checkpoint_index_ = -1;
     start_checkpoint_inserted_ = true;
     logEvent("[Checkpoint] inserted takeoff checkpoint at start position");
+}
+
+/**
+ * @brief Estimate the highest occupied point below the UAV in a local XY radius.
+ * @param ground_z_out Output ground height estimate.
+ * @return True if at least one downward ray hit is found.
+ */
+bool StateMachine::estimateGroundHeight(double &ground_z_out) const
+{
+    // Step 1: Require pose and map
+    if (!has_current_pose_ || !has_octomap_ || !octree_) {
+        return false;
+    }
+
+    // Step 2: Prepare local XY grid sampling and downward ray direction
+    const double radius = std::max(0.0, landing_xy_radius_m_);
+    const double step = std::max(0.05, octree_->getResolution());
+    const octomap::point3d dir_down(0.0F, 0.0F, -1.0F);
+    const double z_start = current_position_.z;
+
+    bool hit_found = false;
+    double best_ground_z = -std::numeric_limits<double>::infinity();
+
+    // Step 3: Cast rays downward in a disk around current XY and keep highest hit below UAV
+    for (double dx = -radius; dx <= radius + 1e-6; dx += step) {
+        for (double dy = -radius; dy <= radius + 1e-6; dy += step) {
+            if ((dx * dx + dy * dy) > (radius * radius)) {
+                continue;
+            }
+
+            const octomap::point3d origin(
+                static_cast<float>(current_position_.x + dx),
+                static_cast<float>(current_position_.y + dy),
+                static_cast<float>(z_start));
+            octomap::point3d hit;
+            const bool ray_hit = octree_->castRay(origin, dir_down, hit, true, landing_probe_depth_m_);
+            if (!ray_hit) {
+                continue;
+            }
+
+            const double hit_z = static_cast<double>(hit.z());
+            if (hit_z >= z_start) {
+                continue;
+            }
+            if (!hit_found || hit_z > best_ground_z) {
+                best_ground_z = hit_z;
+                hit_found = true;
+            }
+        }
+    }
+
+    // Step 4: Return result
+    if (!hit_found) {
+        return false;
+    }
+    ground_z_out = best_ground_z;
+    return true;
+}
+
+/**
+ * @brief Build a dynamic landing checkpoint and point command target from map-estimated ground.
+ * @param target_out Landing target output.
+ * @return True if target generation succeeded.
+ */
+bool StateMachine::prepareLandingCheckpoint(geometry_msgs::msg::Point &target_out)
+{
+    // Step 1: Require current pose and a valid ground estimate
+    double ground_z = 0.0;
+    if (!has_current_pose_ || !estimateGroundHeight(ground_z)) {
+        return false;
+    }
+
+    // Step 2: Build target above local ground
+    target_out.x = current_position_.x;
+    target_out.y = current_position_.y;
+    target_out.z = ground_z + landing_clearance_m_;
+
+    // Step 3: Ensure this is an actual descent target
+    if (target_out.z >= (current_position_.z - kMinLandingDescentM)) {
+        logEvent("[LAND] target too close or above current altitude");
+        return false;
+    }
+
+    // Step 4: Append or update dedicated landing checkpoint and activate it
+    const Eigen::Vector3d landing_cp(target_out.x, target_out.y, target_out.z);
+    if (landing_checkpoint_index_ >= 0 &&
+        landing_checkpoint_index_ < static_cast<short>(checkpoint_positions_.size())) {
+        checkpoint_positions_[static_cast<size_t>(landing_checkpoint_index_)] = landing_cp;
+    } else {
+        checkpoint_positions_.push_back(landing_cp);
+        landing_checkpoint_index_ = static_cast<short>(checkpoint_positions_.size() - 1);
+    }
+    current_checkpoint_index_ = landing_checkpoint_index_;
+    checkpoint_reached_ = false;
+
+    logEvent("[LAND] checkpoint set z=" + std::to_string(target_out.z));
+    return true;
 }
 
 // #################################################################################################

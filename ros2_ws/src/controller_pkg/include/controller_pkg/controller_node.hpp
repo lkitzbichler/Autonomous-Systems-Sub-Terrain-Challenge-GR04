@@ -8,6 +8,8 @@
 
 #include <mav_msgs/msg/actuators.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <statemachine_pkg/msg/answer.hpp>
+#include <statemachine_pkg/msg/command.hpp>
 #include <trajectory_msgs/msg/multi_dof_joint_trajectory.hpp>
 
 #include <Eigen/Dense>
@@ -27,6 +29,9 @@ public:
     const trajectory_msgs::msg::MultiDOFJointTrajectory::SharedPtr des_state_msg);
   void onCurrentState(
     const nav_msgs::msg::Odometry::SharedPtr cur_state_msg);
+  void onCommand(const statemachine_pkg::msg::Command::SharedPtr cmd_msg);
+  void publishHeartbeat();
+  void publishZeroMotors();
 
   // Main control loop
   void controlLoop();
@@ -41,8 +46,11 @@ private:
   // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   rclcpp::Subscription<trajectory_msgs::msg::MultiDOFJointTrajectory>::SharedPtr desired_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr current_sub_;
+  rclcpp::Subscription<statemachine_pkg::msg::Command>::SharedPtr command_sub_;
   rclcpp::Publisher<mav_msgs::msg::Actuators>::SharedPtr motor_pub_;
+  rclcpp::Publisher<statemachine_pkg::msg::Answer>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr heartbeat_timer_;
 
   // Controller parameters
   double kx, kv, kr, komega;  // controller gains
@@ -72,4 +80,8 @@ private:
 
   double hz;                // control loop frequency [Hz]
   bool received_desired;    // flag to check if desired state has been received
+  bool control_enabled_{true}; // True if command interface allows control output
+  std::string command_topic_;  // State-machine command topic
+  std::string heartbeat_topic_; // Heartbeat topic
+  double heartbeat_period_sec_{1.0}; // Heartbeat publish period
 };

@@ -16,6 +16,7 @@ find_package(message_filters REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(statemachine_pkg REQUIRED)
 
 add_library(lantern_detector_node SHARED
   src/lantern_detector_node.cpp
@@ -35,6 +36,7 @@ ament_target_dependencies(lantern_detector_node
   tf2_ros
   tf2_geometry_msgs
   OpenCV
+  statemachine_pkg
 )
 
 rclcpp_components_register_node(lantern_detector_node

@@ -13,13 +13,15 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(octomap REQUIRED)
+find_package(octomap_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Command.msg"
   "msg/Answer.msg"
-  DEPENDENCIES builtin_interfaces
+  DEPENDENCIES builtin_interfaces geometry_msgs
 )
 
 add_executable(state_machine_node
@@ -31,6 +33,7 @@ target_include_directories(state_machine_node
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
     ${EIGEN3_INCLUDE_DIRS}
+    ${OCTOMAP_INCLUDE_DIRS}
 )
 
 ament_target_dependencies(state_machine_node
@@ -39,12 +42,16 @@ ament_target_dependencies(state_machine_node
   geometry_msgs
   visualization_msgs
   nav_msgs
+  octomap_msgs
   Eigen3
 )
 
-rosidl_target_interfaces(state_machine_node
-  ${PROJECT_NAME} "rosidl_typesupport_cpp"
+target_link_libraries(state_machine_node
+  ${OCTOMAP_LIBRARIES}
 )
+
+rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+target_link_libraries(state_machine_node "${cpp_typesupport_target}")
 
 install(TARGETS
   state_machine_node
@@ -57,6 +64,18 @@ install(DIRECTORY include/
 
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
+)
+
+ament_export_include_directories(include)
+ament_export_dependencies(
+  rclcpp
+  std_msgs
+  geometry_msgs
+  visualization_msgs
+  nav_msgs
+  octomap_msgs
+  builtin_interfaces
+  rosidl_default_runtime
 )
 
 if(BUILD_TESTING)

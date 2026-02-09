@@ -6,6 +6,7 @@
  #define MAV_TRAJECTORY_GENERATION_ROS__TRAJECTORY_SAMPLER_NODE_HPP_
  
  #include <memory>
+ #include <string>
  #include <vector>
  
  #include <rclcpp/rclcpp.hpp>
@@ -20,6 +21,7 @@
  #include <mav_planning_msgs/msg/polynomial_segment.hpp>
  #include <mav_planning_msgs/msg/polynomial_trajectory.hpp>
  #include <mav_planning_msgs/msg/polynomial_trajectory4_d.hpp>
+ #include <statemachine_pkg/msg/answer.hpp>
  
  #include <mav_trajectory_generation/polynomial.h>
  #include <mav_trajectory_generation/trajectory_sampling.h>
@@ -44,7 +46,8 @@
      const std::shared_ptr<std_srvs::srv::Empty::Request> request,
      std::shared_ptr<std_srvs::srv::Empty::Response> response);
  
-   void commandTimerCallback();
+  void commandTimerCallback();
+  void heartbeatTimerCallback();
  
    // Helper
    void processTrajectory();
@@ -53,16 +56,20 @@
    rclcpp::Subscription<mav_planning_msgs::msg::PolynomialTrajectory>::SharedPtr trajectory_sub_;
    rclcpp::Subscription<mav_planning_msgs::msg::PolynomialTrajectory4D>::SharedPtr trajectory4D_sub_;
    rclcpp::Publisher<trajectory_msgs::msg::MultiDOFJointTrajectory>::SharedPtr command_pub_;
-   rclcpp::Service<std_srvs::srv::Empty>::SharedPtr stop_srv_;
-   rclcpp::Client<std_srvs::srv::Empty>::SharedPtr position_hold_client_;
-   rclcpp::TimerBase::SharedPtr publish_timer_;
+  rclcpp::Service<std_srvs::srv::Empty>::SharedPtr stop_srv_;
+  rclcpp::Client<std_srvs::srv::Empty>::SharedPtr position_hold_client_;
+  rclcpp::TimerBase::SharedPtr publish_timer_;
+  rclcpp::Publisher<statemachine_pkg::msg::Answer>::SharedPtr heartbeat_pub_;
+  rclcpp::TimerBase::SharedPtr heartbeat_timer_;
  
    rclcpp::Time start_time_;
  
    // Parameters / state
-   bool publish_whole_trajectory_;
-   double dt_;
-   double current_sample_time_;
+  bool publish_whole_trajectory_;
+  double dt_;
+  double current_sample_time_;
+  std::string heartbeat_topic_;
+  double heartbeat_period_sec_{1.0};
  
    // The trajectory to sample.
    mav_trajectory_generation::Trajectory trajectory_;

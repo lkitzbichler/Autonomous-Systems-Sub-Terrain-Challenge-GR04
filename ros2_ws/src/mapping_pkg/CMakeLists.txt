@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.8)
 project(mapping_pkg)
 
+if(POLICY CMP0144)
+  cmake_policy(SET CMP0144 NEW)
+  set(CMAKE_POLICY_DEFAULT_CMP0144 NEW)
+endif()
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()

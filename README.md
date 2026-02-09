@@ -295,19 +295,19 @@ flowchart LR
   state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> path_planner
   path_planner -- "heartbeat (statemachine_pkg::msg::Answer)" --> state_machine
 
-  state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> octomap_server
-  octomap_server -- "heartbeat (statemachine_pkg::msg::Answer)" --> state_machine
+  state_machine -- "node presence check (ROS graph)" --> octomap_server
+  octomap_server -- "octomap_binary (octomap_msgs::msg::Octomap)" --> state_machine
 
   state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> controller
 
-  state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> detector
+  state_machine -- "no runtime command (always-on)" --> detector
   detector -- "detected_lanterns (geometry_msgs::msg::PoseArray)" --> state_machine
 
   %% Unterbefehle
 
   planner -- "trajectory (mav_planning_msgs::msg::PolynomialTrajectory4D)" --> sampler
 
-  path_planner -- "trajectory (mav_planning_msgs::msg::PolynomialTrajectory4D)" --> sampler
+  path_planner -- "no trajectory output (todo)" --> sampler
 
   sampler -- "command/trajectory (trajectory_msgs::msg::MultiDOFJointTrajectory)" --> controller
 
@@ -383,20 +383,20 @@ sequenceDiagram
 
     %% Commands from statemachine
     SM->>CTRL: statemachine/cmd (Command)
-    SM->>MAP: statemachine/cmd (Command)
-    SM->>DET: statemachine/cmd (Command)
+    SM->>MAP: node presence check (ROS graph)
+    SM->>DET: no runtime command (always-on)
     SM->>BP: statemachine/cmd (Command)
     SM->>PP: statemachine/cmd (Command)
 
     %% Feedback to statemachine
     BP-->>SM: heartbeat (Answer)
     PP-->>SM: heartbeat (Answer)
-    MAP-->>SM: heartbeat (Answer)
+    MAP-->>SM: octomap_binary (Octomap)
     DET-->>SM: detected_lanterns (PoseArray)
 
     %% Trajectory flow
     BP->>TS: trajectory (PolynomialTrajectory4D)
-    PP->>TS: trajectory (PolynomialTrajectory4D)
+    PP->>TS: no trajectory output (todo)
     TS->>CTRL: command/trajectory (MultiDOFJointTrajectory)
 
     %% Control output to simulation
@@ -419,22 +419,11 @@ stateDiagram-v2
   state "ABORTED<br>manual abort" as ABORTED
 
   [*] --> WAITING
-  WAITING --> TAKEOFF: all nodes online
+  WAITING --> TAKEOFF: all nodes online + start checkpoint available
   TAKEOFF --> TRAVELLING: checkpoint 0 reached
   TRAVELLING --> EXPLORING: checkpoint 1 reached
   EXPLORING --> LAND: planner DONE + 5 lanterns
-  LAND --> DONE: land command sent
-
-  %% Optional global transitions
-  [*] --> ABORTED: abort_requested
-  WAITING --> ABORTED: abort_requested
-  TAKEOFF --> ABORTED: abort_requested
-  TRAVELLING --> ABORTED: abort_requested
-  EXPLORING --> ABORTED: abort_requested
-  LAND --> ABORTED: abort_requested
-
-  ERROR --> LAND: try safe land
-  ABORTED --> LAND: try safe land
+  LAND --> DONE: landing checkpoint reached
 
   DONE --> [*]
 

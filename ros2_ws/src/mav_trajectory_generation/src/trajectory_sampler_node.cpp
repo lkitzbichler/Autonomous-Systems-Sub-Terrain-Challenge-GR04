@@ -4,7 +4,8 @@
 
  #include <chrono>
 
- #include "mav_trajectory_generation/trajectory_sampler_node.hpp"
+ #include "protocol.hpp"
+ #include "trajectory_sampler_node.hpp"
  
  using namespace std::chrono_literals;
  
@@ -15,13 +16,16 @@
    current_sample_time_(0.0)
  {
    // Parameters (with defaults from the original code)
-   publish_whole_trajectory_ =
-     this->declare_parameter<bool>("publish_whole_trajectory", publish_whole_trajectory_);
-   dt_ = this->declare_parameter<double>("dt", dt_);
+  publish_whole_trajectory_ =
+    this->declare_parameter<bool>("publish_whole_trajectory", publish_whole_trajectory_);
+  dt_ = this->declare_parameter<double>("dt", dt_);
+  heartbeat_topic_ = this->declare_parameter<std::string>("heartbeat_topic", "heartbeat");
+  heartbeat_period_sec_ = this->declare_parameter<double>("heartbeat_period_sec", 1.0);
  
    // Publisher
-   command_pub_ = this->create_publisher<trajectory_msgs::msg::MultiDOFJointTrajectory>(
-     mav_msgs::default_topics::COMMAND_TRAJECTORY, 1);
+  command_pub_ = this->create_publisher<trajectory_msgs::msg::MultiDOFJointTrajectory>(
+    mav_msgs::default_topics::COMMAND_TRAJECTORY, 1);
+  heartbeat_pub_ = this->create_publisher<statemachine_pkg::msg::Answer>(heartbeat_topic_, 10);
  
    // Subscriptions
    trajectory_sub_ = this->create_subscription<mav_planning_msgs::msg::PolynomialTrajectory>(
@@ -46,13 +50,28 @@
      this->create_client<std_srvs::srv::Empty>("back_to_position_hold");
  
    // Timer: create but don't start immediately (cancel, then reset when needed)
-   publish_timer_ = this->create_wall_timer(
-     std::chrono::duration<double>(dt_),
-     std::bind(&TrajectorySamplerNode::commandTimerCallback, this));
-   publish_timer_->cancel();
+  publish_timer_ = this->create_wall_timer(
+    std::chrono::duration<double>(dt_),
+    std::bind(&TrajectorySamplerNode::commandTimerCallback, this));
+  publish_timer_->cancel();
+  heartbeat_timer_ = this->create_wall_timer(
+    std::chrono::duration<double>(heartbeat_period_sec_),
+    std::bind(&TrajectorySamplerNode::heartbeatTimerCallback, this));
  
-   RCLCPP_INFO(get_logger(), "Initialized trajectory sampler (ROS2).");
- }
+  RCLCPP_INFO(get_logger(), "Initialized trajectory sampler (ROS2).");
+}
+
+void TrajectorySamplerNode::heartbeatTimerCallback()
+{
+  statemachine_pkg::msg::Answer hb;
+  hb.node_name = this->get_name();
+  hb.state = static_cast<uint8_t>(statemachine_pkg::protocol::AnswerStates::RUNNING);
+  hb.info = "RUNNING";
+  const auto now = this->now();
+  hb.timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
+  hb.timestamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
+  heartbeat_pub_->publish(hb);
+}
  
  void TrajectorySamplerNode::pathSegmentsCallback(
    const mav_planning_msgs::msg::PolynomialTrajectory::SharedPtr segments_message)

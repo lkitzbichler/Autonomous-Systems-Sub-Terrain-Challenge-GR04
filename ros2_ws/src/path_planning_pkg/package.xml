@@ -11,6 +11,7 @@
 
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
+  <depend>statemachine_pkg</depend>
   <depend>nav2_core</depend>
   <depend>nav2_util</depend>
   <depend>nav2_msgs</depend>

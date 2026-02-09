@@ -19,5 +19,5 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        octomap_server_node
+        octomap_server_node,
     ])

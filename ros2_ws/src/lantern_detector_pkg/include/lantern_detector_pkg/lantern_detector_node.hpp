@@ -7,6 +7,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
 #include "sensor_msgs/msg/image.hpp"
+#include "statemachine_pkg/msg/answer.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "visualization_msgs/msg/marker_array.hpp"
@@ -33,6 +34,7 @@ private:
 
   void update_lanterns(const geometry_msgs::msg::Point& new_pos);
   void publish_lanterns();
+  void publish_heartbeat();
 
   std::string world_frame_;
   double distance_threshold_;
@@ -56,6 +58,11 @@ private:
 
   rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr lantern_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
+  rclcpp::Publisher<statemachine_pkg::msg::Answer>::SharedPtr heartbeat_pub_;
+  rclcpp::TimerBase::SharedPtr heartbeat_timer_;
+
+  std::string heartbeat_topic_;
+  double heartbeat_period_sec_{1.0};
 
   std::vector<Lantern> detected_lanterns_;
 };
