@@ -21,8 +21,7 @@ state_machine_node:
       lantern_merge_dist_m: 0.2
     checkpoints:
       positions:
-        [-38.0, 10.0, 15.0,
-        -320.0, 8.0, 17.0]
+        [-320.0, 8.0, 17.0]
       reach_dist_m: 0.5
     viz:
       path_sample_dist_m: 0.2

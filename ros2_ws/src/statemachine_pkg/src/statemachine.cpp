@@ -19,6 +19,9 @@ double distance3(const geometry_msgs::msg::Point &a, const geometry_msgs::msg::P
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+constexpr double kTakeoffHeightM = 5.0; // Fixed takeoff height above start position
+constexpr double kMinStartPosNormM = 1e-3; // Reject near-zero start pose (0,0,0) as invalid
+
 } // namespace
 
 // #################################################################################################
@@ -31,33 +34,33 @@ StateMachine::StateMachine() : Node("state_machine_node")
     
     // Create and Load Parameters #####################################################################
     // Lists
-    this->checkpoint_list_ = declare_parameter<std::vector<double>>("checkpoints/positions", std::vector<double>{});
+    this->checkpoint_list_ = declare_parameter<std::vector<double>>("checkpoints.positions", std::vector<double>{});
     this->node_list_ = declare_parameter<std::vector<std::string>>("nodes", std::vector<std::string>{});
     // Timer periods
-    this->pub_state_loop_sec_ = declare_parameter<double>("time/pub_state_loop_sec", 1.0);
-    this->alive_tol_sec_ = declare_parameter<double>("time/alive_tol_sec", 10.0);
-    this->boot_timeout_sec_ = declare_parameter<double>("time/boot_timeout_sec", 60.0);
-    this->path_sample_dist_m_ = declare_parameter<double>("viz/path_sample_dist_m", 0.2);
-    this->checkpoint_reach_dist_m_ = declare_parameter<double>("checkpoints/reach_dist_m", 0.5);
+    this->pub_state_loop_sec_ = declare_parameter<double>("time.pub_state_loop_sec", 1.0);
+    this->alive_tol_sec_ = declare_parameter<double>("time.alive_tol_sec", 10.0);
+    this->boot_timeout_sec_ = declare_parameter<double>("time.boot_timeout_sec", 60.0);
+    this->path_sample_dist_m_ = declare_parameter<double>("viz.path_sample_dist_m", 0.2);
+    this->checkpoint_reach_dist_m_ = declare_parameter<double>("checkpoints.reach_dist_m", 0.5);
     // Node role indices (refer to entries in node_list_)
-    this->node_controller_index_ = declare_parameter<int>("node_roles/controller_index", -1);
-    this->node_waypoint_index_ = declare_parameter<int>("node_roles/waypoint_index", -1);
-    this->node_planner_index_ = declare_parameter<int>("node_roles/planner_index", -1);
-    this->node_lantern_index_ = declare_parameter<int>("node_roles/lantern_index", -1);
+    this->node_controller_index_ = declare_parameter<int>("node_roles.controller_index", -1);
+    this->node_waypoint_index_ = declare_parameter<int>("node_roles.waypoint_index", -1);
+    this->node_planner_index_ = declare_parameter<int>("node_roles.planner_index", -1);
+    this->node_lantern_index_ = declare_parameter<int>("node_roles.lantern_index", -1);
     // Lantern detections
-    this->min_lantern_dist_ = declare_parameter<double>("lanterns/min_merge_dist_m", 0.2);
+    this->min_lantern_dist_ = declare_parameter<double>("lanterns.lantern_merge_dist_m", 0.2);
     // Logging paths
-    this->lantern_log_path_ = declare_parameter<std::string>("logging/lantern_log_path", "lanterns_log.csv");
-    this->event_log_path_ = declare_parameter<std::string>("logging/event_log_path", "statemachine_events.log");
+    this->lantern_log_path_ = declare_parameter<std::string>("logging.lantern_log_path", "lanterns_log.csv");
+    this->event_log_path_ = declare_parameter<std::string>("logging.event_log_path", "statemachine_events.log");
 
     // TOPIC PARAMETERS ###############################################################################
-    this->topic_state_ = declare_parameter<std::string>("topics/state", "statemachine/state");
-    this->topic_cmd_ = declare_parameter<std::string>("topics/cmd", "statemachine/cmd");
-    this->topic_heartbeat_ = declare_parameter<std::string>("topics/heartbeat", "statemachine/heartbeat");
-    this->topic_lantern_detections_ = declare_parameter<std::string>("topics/lantern_detections", "detected_lanterns");
-    this->topic_current_state_est_ = declare_parameter<std::string>("topics/current_state_est", "current_state_est");
-    this->topic_viz_checkpoint = declare_parameter<std::string>("topics/topic_viz_checkpoint", "statemachine/viz/checkpoint");
-    this->topic_viz_path_flight = declare_parameter<std::string>("topics/topic_viz_path_flight", "statemachine/viz/path_flight");
+    this->topic_state_ = declare_parameter<std::string>("topics.topic_state", "statemachine/state");
+    this->topic_cmd_ = declare_parameter<std::string>("topics.topic_cmd_", "statemachine/cmd");
+    this->topic_heartbeat_ = declare_parameter<std::string>("topics.topic_heartbeat", "statemachine/heartbeat");
+    this->topic_lantern_detections_ = declare_parameter<std::string>("topics.topic_lantern_detections", "detected_lanterns");
+    this->topic_current_state_est_ = declare_parameter<std::string>("topics.current_state_est", "current_state_est");
+    this->topic_viz_checkpoint = declare_parameter<std::string>("topics.topic_viz_checkpoint", "statemachine/viz/checkpoint");
+    this->topic_viz_path_flight = declare_parameter<std::string>("topics.topic_viz_path_flight", "statemachine/viz/path_flight");
 
     // Create Publishers ##############################################################################
     this->pub_state_ = this->create_publisher<std_msgs::msg::String>(topic_state_, 10);
@@ -90,6 +93,7 @@ StateMachine::StateMachine() : Node("state_machine_node")
             checkpoint_list_[i + 1],
             checkpoint_list_[i + 2]);
     }
+    checkpoint_positions_base_ = checkpoint_positions_; // Store static list before runtime insertion
 }
 
 StateMachine::~StateMachine()
@@ -426,7 +430,7 @@ void StateMachine::checkHeartbeats()
     if (state_ == MissionStates::WAITING) {
         const bool all_alive = std::all_of(nodes_.begin(), nodes_.end(),
             [](const NodeInfo &n) { return n.is_alive; });
-        if (all_alive) {
+        if (all_alive && start_checkpoint_inserted_) {
             changeState(MissionStates::TAKEOFF, "all nodes online");
         }
     }
@@ -556,7 +560,10 @@ void StateMachine::onCurrentStateEst(const nav_msgs::msg::Odometry::SharedPtr ms
         current_pose_frame_id_ = msg->header.frame_id;
     }
 
-    // Step 1: Append path point if far enough from last point
+    // Step 1: Try to insert takeoff checkpoint once a valid pose is available
+    tryInsertStartCheckpoint();
+
+    // Step 2: Append path point if far enough from last point
     if (path_points_.empty()) {
         path_points_.push_back(current_position_);
         return;
@@ -632,6 +639,55 @@ void StateMachine::publishCheckpointViz()
     }
 
     pub_viz_checkpoint_->publish(markers);
+}
+
+// #################################################################################################
+// Checkpoint Helpers
+// #################################################################################################
+
+/**
+ * @brief Insert a takeoff checkpoint (start position + 5m) at the front of the list.
+ */
+void StateMachine::tryInsertStartCheckpoint()
+{
+    // Step 1: Insert only once
+    if (start_checkpoint_inserted_) {
+        return;
+    }
+
+    // Step 2: Require a valid current pose
+    if (!has_current_pose_) {
+        return;
+    }
+
+    // Step 3: Reject zero pose (simulation not running or uninitialized)
+    const double norm = std::sqrt(
+        current_position_.x * current_position_.x +
+        current_position_.y * current_position_.y +
+        current_position_.z * current_position_.z);
+    if (norm < kMinStartPosNormM) {
+        return;
+    }
+
+    // Step 4: Build start checkpoint with fixed takeoff height
+    const Eigen::Vector3d start_cp(
+        current_position_.x,
+        current_position_.y,
+        current_position_.z + kTakeoffHeightM);
+
+    // Step 5: Rebuild list with start checkpoint at front
+    checkpoint_positions_.clear();
+    checkpoint_positions_.reserve(checkpoint_positions_base_.size() + 1);
+    checkpoint_positions_.push_back(start_cp);
+    checkpoint_positions_.insert(
+        checkpoint_positions_.end(),
+        checkpoint_positions_base_.begin(),
+        checkpoint_positions_base_.end());
+
+    // Step 6: Reset checkpoint index to start from the new first checkpoint
+    current_checkpoint_index_ = -1;
+    start_checkpoint_inserted_ = true;
+    logEvent("[Checkpoint] inserted takeoff checkpoint at start position");
 }
 
 // #################################################################################################

@@ -83,11 +83,13 @@ private: // VARIABLES and STRUCTS
     std::vector<NodeInfo> nodes_; // List of nodes to monitor for heartbeats
     std::vector<Lantern> lantern_tracks_; // List of tracked lanterns with their positions and counts
     std::vector<Eigen::Vector3d> checkpoint_positions_; // List of checkpoint positions for visualization
+    std::vector<Eigen::Vector3d> checkpoint_positions_base_; // Static checkpoints from params (without takeoff start)
     
     bool error_ {false}; // Flag to indicate if an error has occurred
     bool abort_requested_ {false}; // Flag to indicate if an abort has been requested
     bool checkpoint_reached_ {false}; // Flag to indicate a checkpoint was reached
     short current_checkpoint_index_ {-1}; // Index of the current checkpoint being targeted, -1 if none
+    bool start_checkpoint_inserted_{false}; // True once the takeoff checkpoint is inserted at list front
     
     bool boot_timeout_reported_ {false}; // Avoid spamming boot-timeout logs
     bool has_current_pose_{false}; // True once current pose has been received
@@ -170,6 +172,7 @@ public: //CONSTRUCTOR & METHODS
 private: // HELPER METHODS
     void checkHeartbeats();                 // Check node heartbeats and mark dead nodes
     void checkCheckpoints();                // Evaluate checkpoint progress
+    void tryInsertStartCheckpoint();        // Insert takeoff checkpoint once a valid start pose is available
     void handleFlagEvents();                // React to flag changes (edge-triggered)
     void publishPathViz();                  // Publish flight path visualization
     void publishCheckpointViz();            // Publish checkpoint markers
