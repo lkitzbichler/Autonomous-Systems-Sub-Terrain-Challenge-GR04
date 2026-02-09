@@ -1,7 +1,7 @@
 planner:
   ros__parameters:
-    max_v: 2.5
-    max_a: 1.5
+    max_v: 10.5 #changed for testing path planning params #2.5
+    max_a: 8.5 #changed for testing path planning params #1.5
 
     waypoints: [
       -100.0, 10.0, 15.0,

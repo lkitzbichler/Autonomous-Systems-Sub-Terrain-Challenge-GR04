@@ -1,6 +1,8 @@
 path_planner:
   ros__parameters:
+    # --- Time / Frames / Topics ---
     use_sim_time: false
+    world_frame: "world"
     command_topic: "statemachine/command"
     octomap_topic: "/octomap_binary"
     odom_topic: "/current_state_est"
@@ -8,9 +10,9 @@ path_planner:
     markers_topic: "path_planner/markers"
     actual_path_topic: "path_planner/actual_path"
     planned_path_topic: "path_planner/planned_path"
-    world_frame: "world"
     waypoint_done_topic: "basic_waypoint/done"
 
+    # --- Mode / Publishing ---
     auto_start: false
     start_on_waypoint_done: true
     visualize: true
@@ -18,42 +20,54 @@ path_planner:
     publish_planned_path: true
     replan_while_moving: true
 
-    tick_rate_hz: 1.0
-    max_v: 2.0
-    max_a: 0.9
-    goal_reached_tolerance: 0.8
-    replan_interval_s: 12.0
-    replan_min_remaining: 12.0
+    # --- Planner Timing ---
+    tick_rate_hz: 1.0                    # planner tick rate
+    replan_interval_s: 12.0              # seconds between replans
+    replan_min_remaining: 12.0           # replan only when close to goal (0 = always)
+    goal_reached_tolerance: 0.8          # distance to consider goal reached
 
-    frontier_max_distance: 200.0
-    min_goal_distance: 8.0
-    frontier_score_distance_weight: 1.5
-    frontier_score_size_weight: 0.3
-    forward_bias_weight: 4.0
-    min_forward_cos: 0.3
-    lateral_bias_weight: 0.8
-    forward_speed_threshold: 0.2
-    use_velocity_heading: true
-    invert_forward_dir: false
+    # --- Motion / Trajectory Constraints ---
+    max_v: 2.0   #2.0 #4.0                       # target max velocity
+    max_a: 0.9                           # target max acceleration
+    use_yaw: true                        # include yaw in trajectory
+    yaw_speed_threshold: 0.6             # velocity threshold for yaw-from-velocity
+    yaw_offset: 0.0                      # yaw offset
 
-    clearance_radius: 1.5
-    use_yaw: true
-    yaw_speed_threshold: 0.6
-    yaw_offset: 0.0
-    path_simplify_distance: 2.3 # 2.5 # 2.0
-    use_line_of_sight_prune: true
-    line_of_sight_step: 0.5
-    actual_path_min_distance: 0.0
-    planned_path_min_distance: 0.0
+    # --- Heading Bias ---
+    forward_speed_threshold: 0.2         # speed threshold for velocity heading
+    use_velocity_heading: true           # use velocity for forward direction
+    invert_forward_dir: false            # flip forward direction
+
+    # --- Frontier Selection / Scoring ---
+    frontier_max_distance: 200.0         # max frontier search radius
+    min_goal_distance: 8.0 #8.0 #25.0             # ignore too-close goals
+    frontier_score_distance_weight: 1.5  # distance penalty
+    frontier_score_size_weight: 0.3      # cluster size reward
+    forward_bias_weight: 4.0             # prefer forward exploration
+    min_forward_cos: 0.3                 # minimum forward alignment
+    lateral_bias_weight: 0.8             # penalize lateral offset
+    frontier_min_cluster_size: 5         # min cells per frontier cluster
+    max_frontier_nodes: 60000            # cap BFS nodes for frontier search
+
+    # --- Map Clearance / Safety ---
+    clearance_radius: 1.5 #1.5               # keep distance to obstacles
+
+    # --- Path Post-Processing ---
+    path_simplify_distance: 2.3   #2.5 #2.0       # downsample spacing for path simplification
+    use_line_of_sight_prune: true        # prune with line-of-sight
+    line_of_sight_step: 0.5              # step size for line-of-sight checks
+    actual_path_min_distance: 0.0        # min spacing for actual path history
+    planned_path_min_distance: 0.0       # min spacing for planned path history
+
+    # --- Backtracking ---
     backtrack_enabled: true
-    backtrack_min_distance: 7.0 # without crash
-    backtrack_stack_size: 60
-    ompl_planning_time: 1.6 # 1.6
-    ompl_range: 12.0
-    ompl_goal_bias: 0.10
-    ompl_resolution: 0.02
-    ompl_simplify: true
-    ompl_allow_unknown: false
+    backtrack_min_distance: 7.0  #without crash        # minimum spacing between backtrack goals
+    backtrack_stack_size: 60             # max stored backtrack goals
 
-    frontier_min_cluster_size: 5
-    max_frontier_nodes: 60000
+    # --- OMPL Planning ---
+    ompl_planning_time: 1.6 #1.6             # seconds for OMPL solve
+    ompl_range: 12.0                     # RRT* range
+    ompl_goal_bias: 0.10                 # RRT* goal bias
+    ompl_resolution: 0.02                # state validity resolution
+    ompl_simplify: true                  # enable OMPL path simplification
+    ompl_allow_unknown: false            # treat unknown as occupied
