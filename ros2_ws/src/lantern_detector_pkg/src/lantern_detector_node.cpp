@@ -90,81 +90,54 @@ void LanternDetectorNode::synchronized_callback(
       depth = cv_bridge::toCvShare(depth_msg, "32FC1")->image.clone();
     }
 
-    // Extraction: In semantic camera, lanterns usually have a very distinct color.
-    // We convert to HSV to better isolate the specific "glowing" color if possible,
-    // but for now, we'll use a tighter threshold on grayscale to avoid background noise.
     cv::cvtColor(semantic, mask, cv::COLOR_BGR2GRAY);
-    cv::threshold(mask, mask, 50, 255, cv::THRESH_BINARY); 
+    cv::threshold(mask, mask, 0, 255, cv::THRESH_BINARY); 
   } catch (const cv_bridge::Exception& e) {
     RCLCPP_ERROR(this->get_logger(), "cv_bridge exception: %s", e.what());
     return;
   }
-
-  std::vector<std::vector<cv::Point>> contours;
-  cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
   const double fx = depth_info_->p[0] != 0 ? depth_info_->p[0] : depth_info_->k[0];
   const double fy = depth_info_->p[5] != 0 ? depth_info_->p[5] : depth_info_->k[4];
   const double cx = depth_info_->p[2] != 0 ? depth_info_->p[2] : depth_info_->k[2];
   const double cy = depth_info_->p[6] != 0 ? depth_info_->p[6] : depth_info_->k[5];
 
-  bool any_detected = false;
+  double sum_x = 0, sum_y = 0, sum_z = 0;
+  int count = 0;
 
-  for (const auto& contour : contours) {
-    if (cv::contourArea(contour) < 20) continue;
-
-    std::vector<float> depths;
-    std::vector<cv::Point2f> px_locs;
-
-    cv::Rect bounds = cv::boundingRect(contour);
-    for (int y = bounds.y; y < bounds.y + bounds.height; ++y) {
-      for (int x = bounds.x; x < bounds.x + bounds.width; ++x) {
-        if (cv::pointPolygonTest(contour, cv::Point2f(x, y), false) < 0) continue;
-
+  for (int y = 0; y < mask.rows; ++y) {
+    for (int x = 0; x < mask.cols; ++x) {
+      if (mask.at<uchar>(y, x) > 0) {
         int dx = (semantic.cols != depth.cols) ? (x * depth.cols / semantic.cols) : x;
         int dy = (semantic.rows != depth.rows) ? (y * depth.rows / semantic.rows) : y;
-
+        
         if (dx >= depth.cols || dy >= depth.rows) continue;
         
         const float d = depth.at<float>(dy, dx);
         if (std::isfinite(d) && d > min_depth_ && d < max_depth_) {
-          depths.push_back(d);
-          px_locs.push_back(cv::Point2f(dx, dy));
+          sum_z += d;
+          sum_x += (dx - cx) * d / fx;
+          sum_y += (dy - cy) * d / fy;
+          count++;
         }
       }
     }
+  }
 
-    if (depths.size() < 10) continue;
-
-    // Use Median Depth for robustness against edge bleeding
-    std::sort(depths.begin(), depths.end());
-    float median_d = depths[depths.size() / 2];
-
-    float avg_px_x = 0, avg_px_y = 0;
-    for (const auto& p : px_locs) {
-        avg_px_x += p.x;
-        avg_px_y += p.y;
-    }
-    avg_px_x /= px_locs.size();
-    avg_px_y /= px_locs.size();
-
+  if (count > 0) {
     geometry_msgs::msg::PointStamped pt_depth_frame;
     pt_depth_frame.header = depth_msg->header;
-    pt_depth_frame.point.z = median_d;
-    pt_depth_frame.point.x = (avg_px_x - cx) * median_d / fx;
-    pt_depth_frame.point.y = (avg_px_y - cy) * median_d / fy;
+    pt_depth_frame.point.x = sum_x / count;
+    pt_depth_frame.point.y = sum_y / count;
+    pt_depth_frame.point.z = sum_z / count;
 
     try {
       const auto pt_world = tf_buffer_->transform(pt_depth_frame, world_frame_, tf2::durationFromSec(0.2));
       update_lanterns(pt_world.point);
-      any_detected = true;
+      publish_lanterns();
     } catch (const tf2::TransformException& ex) {
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "TF: %s", ex.what());
     }
-  }
-
-  if (any_detected) {
-    publish_lanterns();
   }
 }
 
