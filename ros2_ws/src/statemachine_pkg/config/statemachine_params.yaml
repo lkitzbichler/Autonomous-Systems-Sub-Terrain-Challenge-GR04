@@ -18,11 +18,12 @@ state_machine_node:
       alive_tol_sec: 10.0
       pub_state_loop_sec: 1.0
       boot_timeout_sec: 60.0
+      takeoff_cmd_retry_sec: 1.5
     lanterns:
       lantern_merge_dist_m: 0.2
     checkpoints:
       positions:
-        [-320.0, 8.0, 17.0]
+        [-320.0, 9.0, 16.0]
       reach_dist_m: 0.5
     landing:
       xy_radius_m: 0.5

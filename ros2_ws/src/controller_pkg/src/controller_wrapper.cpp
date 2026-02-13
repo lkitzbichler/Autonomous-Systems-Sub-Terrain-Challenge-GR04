@@ -37,6 +37,7 @@ ControllerNode::ControllerNode()
   command_topic_ = this->declare_parameter<std::string>("command_topic", "statemachine/cmd");
   heartbeat_topic_ = this->declare_parameter<std::string>("heartbeat_topic", "heartbeat");
   heartbeat_period_sec_ = this->declare_parameter<double>("heartbeat_period_sec", 1.0);
+  yaw_from_vel_min_xy_ = this->declare_parameter<double>("yaw_from_vel_min_xy", yaw_from_vel_min_xy_);
 
   // Initialization of ROS elements
   motor_pub_= this->create_publisher<mav_msgs::msg::Actuators>("rotor_speed_cmds", 10);
@@ -82,6 +83,10 @@ ControllerNode::ControllerNode()
 }
 
 void ControllerNode::onDesiredState(const trajectory_msgs::msg::MultiDOFJointTrajectory::SharedPtr des_state_msg){
+  if (!des_state_msg || des_state_msg->points.empty()) {
+    return;
+  }
+
   const auto & point = des_state_msg->points[0];
 
   // desired position
@@ -101,16 +106,21 @@ void ControllerNode::onDesiredState(const trajectory_msgs::msg::MultiDOFJointTra
 
   // desired yaw: align with desired velocity when moving
   const double vxy = std::hypot(vd.x(), vd.y());
-  if (vxy > 1e-3) {
+  if (vxy > std::max(1e-3, yaw_from_vel_min_xy_)) {
     yawd = std::atan2(vd.y(), vd.x());
+    yaw_initialized_ = true;
   } else {
-    Eigen::Quaterniond q(
-      point.transforms[0].rotation.w,
-      point.transforms[0].rotation.x,
-      point.transforms[0].rotation.y,
-      point.transforms[0].rotation.z);
-    Eigen::Matrix3d R_des = q.toRotationMatrix();
-    yawd = std::atan2(R_des(1, 0), R_des(0, 0));
+    // Keep yaw stable while nearly stationary to avoid camera "look-away" flips.
+    if (!yaw_initialized_) {
+      Eigen::Quaterniond q(
+        point.transforms[0].rotation.w,
+        point.transforms[0].rotation.x,
+        point.transforms[0].rotation.y,
+        point.transforms[0].rotation.z);
+      Eigen::Matrix3d R_des = q.toRotationMatrix();
+      yawd = std::atan2(R_des(1, 0), R_des(0, 0));
+      yaw_initialized_ = true;
+    }
   }
 
   received_desired = true;

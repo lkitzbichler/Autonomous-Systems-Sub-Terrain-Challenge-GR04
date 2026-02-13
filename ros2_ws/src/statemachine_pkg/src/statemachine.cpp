@@ -46,6 +46,7 @@ StateMachine::StateMachine() : Node("state_machine_node")
     this->pub_state_loop_sec_ = declare_parameter<double>("time.pub_state_loop_sec", 1.0);
     this->alive_tol_sec_ = declare_parameter<double>("time.alive_tol_sec", 10.0);
     this->boot_timeout_sec_ = declare_parameter<double>("time.boot_timeout_sec", 60.0);
+    this->takeoff_cmd_retry_sec_ = declare_parameter<double>("time.takeoff_cmd_retry_sec", 1.5);
     this->path_sample_dist_m_ = declare_parameter<double>("viz.path_sample_dist_m", 0.2);
     this->checkpoint_reach_dist_m_ = declare_parameter<double>("checkpoints.reach_dist_m", 0.5);
     this->landing_xy_radius_m_ = declare_parameter<double>("landing.xy_radius_m", 0.5);
@@ -152,6 +153,9 @@ void StateMachine::changeState(MissionStates new_state, const std::string &reaso
     if (state_ != MissionStates::WAITING) {
         boot_timeout_reported_ = false;
     }
+    if (state_ != MissionStates::TAKEOFF) {
+        last_takeoff_cmd_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    }
 
     // Step 4: Log and publish new state
     logEvent("[State] " + toString(state_) + " (" + reason + ")");
@@ -174,6 +178,7 @@ void StateMachine::changeState(MissionStates new_state, const std::string &reaso
                 target.y = checkpoint_positions_.front().y();
                 target.z = checkpoint_positions_.front().z();
                 sendCommandWithTarget(node_waypoint, Commands::TAKEOFF, target);
+                last_takeoff_cmd_time_ = this->now();
             } else if (!node_waypoint.empty()) {
                 logEvent("[TAKEOFF] no checkpoint available for takeoff target");
             }
@@ -189,11 +194,22 @@ void StateMachine::changeState(MissionStates new_state, const std::string &reaso
             break;
         case MissionStates::RETURN_HOME:
             if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
-            if (!node_planner.empty()) sendCommand(node_planner, Commands::RETURN_HOME);
+            if (!node_planner.empty()) {
+                if (start_checkpoint_inserted_ && !checkpoint_positions_.empty()) {
+                    geometry_msgs::msg::Point target;
+                    target.x = checkpoint_positions_.front().x();
+                    target.y = checkpoint_positions_.front().y();
+                    target.z = checkpoint_positions_.front().z();
+                    sendCommandWithTarget(node_planner, Commands::RETURN_HOME, target);
+                } else {
+                    sendCommand(node_planner, Commands::RETURN_HOME);
+                }
+            }
             break;
         case MissionStates::LAND:
             landing_checkpoint_index_ = -1; // Force fresh landing target creation on LAND entry
             if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
+            if (!node_planner.empty()) sendCommand(node_planner, Commands::HOLD);
             if (!node_waypoint.empty()) {
                 geometry_msgs::msg::Point target;
                 if (prepareLandingCheckpoint(target)) {
@@ -492,7 +508,27 @@ void StateMachine::onTimer()
     checkCheckpoints();
     handleFlagEvents();
 
-    // Step 5: Retry LAND target creation while waiting for octomap/current pose
+    // Step 5: Retry TAKEOFF command while waiting for first successful takeoff trajectory.
+    if (state_ == MissionStates::TAKEOFF) {
+        const std::string node_waypoint = nodeNameByIndex(node_waypoint_index_);
+        if (!node_waypoint.empty() && !checkpoint_positions_.empty()) {
+            const auto now = this->now();
+            const double retry_sec = std::max(0.2, takeoff_cmd_retry_sec_);
+            const bool first_retry = last_takeoff_cmd_time_.nanoseconds() == 0;
+            const bool retry_due = !first_retry && (now - last_takeoff_cmd_time_).seconds() >= retry_sec;
+            if (first_retry || retry_due) {
+                geometry_msgs::msg::Point target;
+                target.x = checkpoint_positions_.front().x();
+                target.y = checkpoint_positions_.front().y();
+                target.z = checkpoint_positions_.front().z();
+                sendCommandWithTarget(node_waypoint, Commands::TAKEOFF, target);
+                last_takeoff_cmd_time_ = now;
+                logEvent("[TAKEOFF] retry command sent");
+            }
+        }
+    }
+
+    // Step 6: Retry LAND target creation while waiting for octomap/current pose
     if (state_ == MissionStates::LAND && landing_checkpoint_index_ < 0) {
         const std::string node_waypoint = nodeNameByIndex(node_waypoint_index_);
         if (!node_waypoint.empty()) {
@@ -539,7 +575,14 @@ void StateMachine::checkHeartbeats()
     // Step 2: If all nodes are alive, start mission from WAITING
     if (state_ == MissionStates::WAITING) {
         const bool all_alive = std::all_of(nodes_.begin(), nodes_.end(),
-            [](const NodeInfo &n) { return n.is_alive; });
+            [](const NodeInfo &n) {
+                // octomap_server is external infrastructure and does not publish our custom heartbeat.
+                // Do not block mission startup on its ROS-graph presence.
+                if (n.name == "octomap_server") {
+                    return true;
+                }
+                return n.is_alive;
+            });
         if (all_alive && start_checkpoint_inserted_) {
             changeState(MissionStates::TAKEOFF, "all nodes online");
         }
@@ -647,7 +690,20 @@ void StateMachine::handleFlagEvents()
     // Step 3: Exploration complete condition
     if (state_ == MissionStates::EXPLORING) {
         if (planner_done_ && lantern_tracks_.size() >= 5) {
-            changeState(MissionStates::LAND, "exploration complete");
+            changeState(MissionStates::RETURN_HOME, "exploration complete");
+        }
+    }
+
+    // Step 4: Start landing only after reaching return-home target (takeoff start point).
+    if (state_ == MissionStates::RETURN_HOME && has_current_pose_ &&
+        start_checkpoint_inserted_ && !checkpoint_positions_.empty()) {
+        const auto &home_cp = checkpoint_positions_.front();
+        geometry_msgs::msg::Point home_target;
+        home_target.x = home_cp.x();
+        home_target.y = home_cp.y();
+        home_target.z = home_cp.z();
+        if (distance3(current_position_, home_target) <= checkpoint_reach_dist_m_) {
+            changeState(MissionStates::LAND, "return-home target reached");
         }
     }
 }
