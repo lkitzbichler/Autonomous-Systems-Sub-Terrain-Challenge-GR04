@@ -4,10 +4,13 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <queue>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -60,6 +63,13 @@ const std::array<Eigen::Vector3d, 18> kProbeDirections = {
   Eigen::Vector3d(0.0, -1.0, 1.0).normalized(),
   Eigen::Vector3d(0.0, -1.0, -1.0).normalized(),
 };
+
+uint64_t packKey(const octomap::OcTreeKey &key)
+{
+  return (static_cast<uint64_t>(key.k[0]) << 32) |
+    (static_cast<uint64_t>(key.k[1]) << 16) |
+    static_cast<uint64_t>(key.k[2]);
+}
 
 }  // namespace
 
@@ -147,8 +157,20 @@ void PathPlannerNode::declareAndLoadParameters()
     this->declare_parameter<int>("frontier_unknown_min_neighbors", frontier_unknown_min_neighbors_);
   frontier_known_free_min_neighbors_ = this->declare_parameter<int>(
     "frontier_known_free_min_neighbors", frontier_known_free_min_neighbors_);
+  frontier_min_cluster_size_ =
+    this->declare_parameter<int>("frontier_min_cluster_size", frontier_min_cluster_size_);
   max_frontier_fail_cycles_ =
     this->declare_parameter<int>("max_frontier_fail_cycles", max_frontier_fail_cycles_);
+  backtrack_enabled_ = this->declare_parameter<bool>("backtrack_enabled", backtrack_enabled_);
+  backtrack_min_distance_m_ =
+    this->declare_parameter<double>("backtrack_min_distance_m", backtrack_min_distance_m_);
+  backtrack_max_points_ = this->declare_parameter<int>("backtrack_max_points", backtrack_max_points_);
+  breadcrumb_min_spacing_m_ =
+    this->declare_parameter<double>("breadcrumb_min_spacing_m", breadcrumb_min_spacing_m_);
+  breadcrumb_max_points_ =
+    this->declare_parameter<int>("breadcrumb_max_points", breadcrumb_max_points_);
+  return_goal_reached_radius_m_ =
+    this->declare_parameter<double>("return_goal_reached_radius_m", return_goal_reached_radius_m_);
 
   ompl_timeout_sec_ = this->declare_parameter<double>("ompl_timeout_sec", ompl_timeout_sec_);
   ompl_range_m_ = this->declare_parameter<double>("ompl_range_m", ompl_range_m_);
@@ -176,6 +198,8 @@ void PathPlannerNode::declareAndLoadParameters()
     this->declare_parameter<double>("adaptive_step_turn_weight", adaptive_step_turn_weight_);
   adaptive_step_min_ratio_ =
     this->declare_parameter<double>("adaptive_step_min_ratio", adaptive_step_min_ratio_);
+  trajectory_waypoint_target_count_ = this->declare_parameter<int>(
+    "trajectory_waypoint_target_count", trajectory_waypoint_target_count_);
   marker_max_candidates_ = this->declare_parameter<int>("marker_max_candidates", marker_max_candidates_);
 
   // Step 3: Clamp to robust ranges.
@@ -198,7 +222,14 @@ void PathPlannerNode::refreshDynamicParameters()
   (void)this->get_parameter("frontier_goal_dist_max", frontier_goal_dist_max_);
   (void)this->get_parameter("frontier_unknown_min_neighbors", frontier_unknown_min_neighbors_);
   (void)this->get_parameter("frontier_known_free_min_neighbors", frontier_known_free_min_neighbors_);
+  (void)this->get_parameter("frontier_min_cluster_size", frontier_min_cluster_size_);
   (void)this->get_parameter("max_frontier_fail_cycles", max_frontier_fail_cycles_);
+  (void)this->get_parameter("backtrack_enabled", backtrack_enabled_);
+  (void)this->get_parameter("backtrack_min_distance_m", backtrack_min_distance_m_);
+  (void)this->get_parameter("backtrack_max_points", backtrack_max_points_);
+  (void)this->get_parameter("breadcrumb_min_spacing_m", breadcrumb_min_spacing_m_);
+  (void)this->get_parameter("breadcrumb_max_points", breadcrumb_max_points_);
+  (void)this->get_parameter("return_goal_reached_radius_m", return_goal_reached_radius_m_);
   (void)this->get_parameter("ompl_timeout_sec", ompl_timeout_sec_);
   (void)this->get_parameter("ompl_range_m", ompl_range_m_);
   (void)this->get_parameter("bounds_padding_m", bounds_padding_m_);
@@ -215,6 +246,7 @@ void PathPlannerNode::refreshDynamicParameters()
   (void)this->get_parameter("adaptive_step_clearance_range_m", adaptive_step_clearance_range_m_);
   (void)this->get_parameter("adaptive_step_turn_weight", adaptive_step_turn_weight_);
   (void)this->get_parameter("adaptive_step_min_ratio", adaptive_step_min_ratio_);
+  (void)this->get_parameter("trajectory_waypoint_target_count", trajectory_waypoint_target_count_);
   (void)this->get_parameter("marker_max_candidates", marker_max_candidates_);
 
   // Step 2: Clamp to safe ranges.
@@ -231,7 +263,13 @@ void PathPlannerNode::refreshDynamicParameters()
   frontier_goal_dist_max_ = std::max(frontier_goal_dist_min_ + 0.2, frontier_goal_dist_max_);
   frontier_unknown_min_neighbors_ = std::max(1, frontier_unknown_min_neighbors_);
   frontier_known_free_min_neighbors_ = std::clamp(frontier_known_free_min_neighbors_, 1, 26);
+  frontier_min_cluster_size_ = std::max(1, frontier_min_cluster_size_);
   max_frontier_fail_cycles_ = std::max(1, max_frontier_fail_cycles_);
+  backtrack_min_distance_m_ = std::max(0.5, backtrack_min_distance_m_);
+  backtrack_max_points_ = std::max(1, backtrack_max_points_);
+  breadcrumb_min_spacing_m_ = std::max(0.2, breadcrumb_min_spacing_m_);
+  breadcrumb_max_points_ = std::max(50, breadcrumb_max_points_);
+  return_goal_reached_radius_m_ = std::max(0.2, return_goal_reached_radius_m_);
   ompl_timeout_sec_ = std::max(0.02, ompl_timeout_sec_);
   ompl_range_m_ = std::max(0.2, ompl_range_m_);
   bounds_padding_m_ = std::max(0.2, bounds_padding_m_);
@@ -242,6 +280,7 @@ void PathPlannerNode::refreshDynamicParameters()
   adaptive_step_clearance_range_m_ = std::max(0.2, adaptive_step_clearance_range_m_);
   adaptive_step_turn_weight_ = std::clamp(adaptive_step_turn_weight_, 0.0, 1.0);
   adaptive_step_min_ratio_ = std::clamp(adaptive_step_min_ratio_, 0.1, 1.0);
+  trajectory_waypoint_target_count_ = std::clamp(trajectory_waypoint_target_count_, 2, 12);
   marker_max_candidates_ = std::max(10, marker_max_candidates_);
 }
 
@@ -261,8 +300,10 @@ void PathPlannerNode::onCommand(const statemachine_pkg::msg::Command::SharedPtr 
       // START is sent cyclically by statemachine: avoid resetting active exploration on each message.
       if (mode_ != PlannerMode::EXPLORE || planner_done_) {
         mode_ = PlannerMode::EXPLORE;
+        resetReturnHomeState();
         planner_done_ = false;
         has_current_goal_ = false;
+        current_goal_from_backtrack_ = false;
         frontier_fail_cycles_ = 0;
         debug_candidate_points_.clear();
         RCLCPP_INFO(this->get_logger(), "[cmd] START -> EXPLORE");
@@ -276,12 +317,20 @@ void PathPlannerNode::onCommand(const statemachine_pkg::msg::Command::SharedPtr 
         mode_ = PlannerMode::RETURN_HOME;
         planner_done_ = false;
         has_current_goal_ = false;
+        current_goal_from_backtrack_ = false;
         frontier_fail_cycles_ = 0;
         debug_candidate_points_.clear();
+        resetReturnHomeState();
       }
       if (msg->has_target) {
         home_position_ = Eigen::Vector3d(msg->target_pos.x, msg->target_pos.y, msg->target_pos.z);
         has_home_pose_ = true;
+      }
+      if (breadcrumbs_.empty()) {
+        return_phase_ = ReturnPhase::FINAL_HOME;
+      } else {
+        return_phase_ = ReturnPhase::TRACE_PATH;
+        return_breadcrumb_index_ = static_cast<int>(breadcrumbs_.size()) - 1;
       }
       if (mode_changed || msg->has_target) {
         RCLCPP_INFO(this->get_logger(), "[cmd] RETURN_HOME");
@@ -294,7 +343,9 @@ void PathPlannerNode::onCommand(const statemachine_pkg::msg::Command::SharedPtr 
     case static_cast<uint8_t>(statemachine_pkg::protocol::Commands::LAND):
       if (mode_ != PlannerMode::IDLE || has_current_goal_) {
         mode_ = PlannerMode::IDLE;
+        resetReturnHomeState();
         has_current_goal_ = false;
+        current_goal_from_backtrack_ = false;
         RCLCPP_INFO(this->get_logger(), "[cmd] HOLD/ABORT/LAND -> IDLE");
       }
       break;
@@ -334,6 +385,9 @@ void PathPlannerNode::onOdometry(const nav_msgs::msg::Odometry::SharedPtr msg)
     home_position_ = current_position_;
     has_home_pose_ = true;
   }
+
+  // Step 4: Maintain breadcrumb history for RETURN_HOME path tracing.
+  recordBreadcrumb(current_position_);
 }
 
 void PathPlannerNode::onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg)
@@ -405,11 +459,27 @@ void PathPlannerNode::onPlannerTimer()
 
   // Step 3: Mark current goal as visited when reached.
   if (has_current_goal_ && hasReachedGoal()) {
-    storeVisitedGoal(current_goal_);
+    if (mode_ == PlannerMode::EXPLORE) {
+      storeVisitedGoal(current_goal_);
+      if (!current_goal_from_backtrack_) {
+        storeBacktrackGoal(current_goal_);
+      }
+    }
     has_current_goal_ = false;
+    current_goal_from_backtrack_ = false;
   }
 
-  // Step 4: Respect replan timeout to avoid publish spam.
+  // Step 4: End RETURN_HOME planning once home target is reached.
+  if (mode_ == PlannerMode::RETURN_HOME && has_home_pose_) {
+    if (distance3(current_position_, home_position_) <= return_goal_reached_radius_m_) {
+      return_phase_ = ReturnPhase::COMPLETE;
+      has_current_goal_ = false;
+      current_goal_from_backtrack_ = false;
+      return;
+    }
+  }
+
+  // Step 5: Respect replan timeout to avoid publish spam.
   const auto now = this->now();
   const bool timed_out =
     (last_plan_time_.nanoseconds() > 0) && ((now - last_plan_time_).seconds() >= replan_timeout_sec_);
@@ -418,10 +488,16 @@ void PathPlannerNode::onPlannerTimer()
     return;
   }
 
-  // Step 5: Choose next goal.
+  // Step 6: Choose next goal.
   Eigen::Vector3d goal = current_position_;
   std::string reason;
   if (!chooseGoal(goal, reason)) {
+    if (mode_ == PlannerMode::RETURN_HOME) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+        "No valid return-home goal found yet.");
+      return;
+    }
+
     frontier_fail_cycles_++;
 
     if (shouldReportDone()) {
@@ -439,45 +515,85 @@ void PathPlannerNode::onPlannerTimer()
     return;
   }
 
-  // Step 6: Plan geometric path with OMPL.
+  // Step 7: Plan geometric path with OMPL.
   std::vector<Eigen::Vector3d> path;
   if (!planPathOmpl(current_position_, goal, path)) {
+    if (mode_ == PlannerMode::RETURN_HOME) {
+      if (return_phase_ == ReturnPhase::TRACE_PATH && return_breadcrumb_index_ >= 0) {
+        --return_breadcrumb_index_;
+      }
+      return_phase_ = ReturnPhase::RECOVERY_OMPL;
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+        "OMPL planning failed during RETURN_HOME.");
+      return;
+    }
+
     frontier_fail_cycles_++;
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
       "OMPL planning failed for selected goal (fail_cycles=%d).", frontier_fail_cycles_);
     return;
   }
 
-  // Step 7: Convert geometric path to compact waypoint chain.
+  // Step 8: Convert geometric path to compact waypoint chain.
   std::vector<Eigen::Vector3d> waypoints;
   if (!resamplePath(path, waypoints)) {
+    if (mode_ == PlannerMode::RETURN_HOME) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+        "Path resampling failed during RETURN_HOME.");
+      return;
+    }
+
     frontier_fail_cycles_++;
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
       "Path resampling failed (fail_cycles=%d).", frontier_fail_cycles_);
     return;
   }
 
-  // Step 8: Generate and publish polynomial trajectory.
-  if (!buildAndPublishTrajectory(waypoints, true)) {
+  // Step 9: Reduce trajectory support points to a compact set (default: 5).
+  std::vector<Eigen::Vector3d> trajectory_waypoints;
+  if (!compressTrajectoryWaypoints(waypoints, trajectory_waypoints)) {
+    if (mode_ == PlannerMode::RETURN_HOME) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+        "Waypoint compression failed during RETURN_HOME.");
+      return;
+    }
+
+    frontier_fail_cycles_++;
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+      "Waypoint compression failed (fail_cycles=%d).", frontier_fail_cycles_);
+    return;
+  }
+
+  // Step 10: Generate and publish polynomial trajectory.
+  if (!buildAndPublishTrajectory(trajectory_waypoints, true)) {
+    if (mode_ == PlannerMode::RETURN_HOME) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+        "Trajectory generation failed during RETURN_HOME.");
+      return;
+    }
+
     frontier_fail_cycles_++;
     RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
       "Trajectory generation failed (fail_cycles=%d).", frontier_fail_cycles_);
     return;
   }
 
-  // Step 9: Publish selected path/debug markers.
+  // Step 11: Publish selected path/debug markers.
   publishSelectedPath(path);
-  publishPlanningVisualization(path, waypoints);
+  publishPlanningVisualization(path, trajectory_waypoints);
 
-  // Step 10: Store planning state.
+  // Step 12: Store planning state.
   current_goal_ = goal;
   has_current_goal_ = true;
-  frontier_fail_cycles_ = 0;
+  current_goal_from_backtrack_ = (reason == "backtrack");
+  if (mode_ == PlannerMode::EXPLORE) {
+    frontier_fail_cycles_ = 0;
+  }
   last_plan_time_ = now;
 
   RCLCPP_INFO(this->get_logger(),
     "Trajectory published: mode=%u reason=%s goal=(%.2f, %.2f, %.2f) waypoints=%zu",
-    static_cast<unsigned>(mode_), reason.c_str(), goal.x(), goal.y(), goal.z(), waypoints.size());
+    static_cast<unsigned>(mode_), reason.c_str(), goal.x(), goal.y(), goal.z(), trajectory_waypoints.size());
 }
 
 void PathPlannerNode::onHeartbeatTimer()
@@ -493,7 +609,17 @@ void PathPlannerNode::onHeartbeatTimer()
   if (mode_ == PlannerMode::EXPLORE) {
     info = has_current_goal_ ? "RUNNING_EXPLORE_ACTIVE" : "RUNNING_EXPLORE_WAIT";
   } else if (mode_ == PlannerMode::RETURN_HOME) {
-    info = has_current_goal_ ? "RUNNING_RETURN_ACTIVE" : "RUNNING_RETURN_WAIT";
+    if (return_phase_ == ReturnPhase::TRACE_PATH) {
+      info = has_current_goal_ ? "RUNNING_RETURN_TRACE" : "RUNNING_RETURN_TRACE_WAIT";
+    } else if (return_phase_ == ReturnPhase::RECOVERY_OMPL) {
+      info = has_current_goal_ ? "RUNNING_RETURN_RECOVERY" : "RUNNING_RETURN_RECOVERY_WAIT";
+    } else if (return_phase_ == ReturnPhase::FINAL_HOME) {
+      info = has_current_goal_ ? "RUNNING_RETURN_FINAL_HOME" : "RUNNING_RETURN_FINAL_HOME_WAIT";
+    } else if (return_phase_ == ReturnPhase::COMPLETE) {
+      info = "RUNNING_RETURN_COMPLETE";
+    } else {
+      info = has_current_goal_ ? "RUNNING_RETURN_ACTIVE" : "RUNNING_RETURN_WAIT";
+    }
   }
 
   publishHeartbeat(static_cast<uint8_t>(statemachine_pkg::protocol::AnswerStates::RUNNING), info);
@@ -520,7 +646,13 @@ bool PathPlannerNode::chooseGoal(Eigen::Vector3d &goal_out, std::string &reason_
     return true;
   }
 
-  // Step 2: Fallback to free-space sweep if frontier extraction fails.
+  // Step 2: If no frontiers remain, fallback to exploration backtracking.
+  if (popBacktrackGoal(goal_out)) {
+    reason_out = "backtrack";
+    return true;
+  }
+
+  // Step 3: Last fallback to free-space sweep.
   return chooseFallbackGoal(goal_out, reason_out);
 }
 
@@ -530,7 +662,13 @@ bool PathPlannerNode::chooseExploreGoal(Eigen::Vector3d &goal_out, std::string &
     return false;
   }
 
-  // Step 1: Cache direction of motion for yaw-forward bias.
+  // Step 1: Build frontier clusters.
+  std::vector<FrontierCluster> clusters;
+  if (!computeFrontierClusters(clusters)) {
+    return false;
+  }
+
+  // Step 2: Cache direction of motion for forward bias in scoring.
   Eigen::Vector3d v_dir = Eigen::Vector3d::Zero();
   if (has_current_goal_) {
     Eigen::Vector3d goal_dir = current_goal_ - current_position_;
@@ -549,27 +687,28 @@ bool PathPlannerNode::chooseExploreGoal(Eigen::Vector3d &goal_out, std::string &
     v_dir = heading_hint_;
   }
 
-  // Step 2: Score all free leaves as frontier candidates.
-  debug_candidate_points_.clear();
+  // Step 3: Select the best cluster centroid/cell as planning target.
+  return selectFrontierClusterGoal(clusters, v_dir, goal_out, reason_out);
+}
 
-  bool found = false;
-  Eigen::Vector3d best_pos = current_position_;
-  double best_score = -std::numeric_limits<double>::infinity();
-  std::vector<std::pair<double, Eigen::Vector3d>> top_candidates;
-  top_candidates.reserve(static_cast<size_t>(marker_max_candidates_));
-  auto push_top_candidate = [&](double score, const Eigen::Vector3d &p) {
-    if (marker_max_candidates_ <= 0) {
-      return;
-    }
-    top_candidates.emplace_back(score, p);
-    std::sort(
-      top_candidates.begin(), top_candidates.end(),
-      [](const auto &a, const auto &b) { return a.first > b.first; });
-    if (static_cast<int>(top_candidates.size()) > marker_max_candidates_) {
-      top_candidates.pop_back();
-    }
+bool PathPlannerNode::computeFrontierClusters(std::vector<FrontierCluster> &clusters_out) const
+{
+  clusters_out.clear();
+  if (!octree_) {
+    return false;
+  }
+
+  struct FrontierCell {
+    octomap::OcTreeKey key;
+    Eigen::Vector3d pos{Eigen::Vector3d::Zero()};
   };
 
+  std::vector<FrontierCell> cells;
+  cells.reserve(4096);
+  std::unordered_map<uint64_t, size_t> cell_index;
+  cell_index.reserve(4096);
+
+  // Step 1: Extract frontier-labeled free cells.
   for (auto it = octree_->begin_leafs(), end = octree_->end_leafs(); it != end; ++it) {
     if (octree_->isNodeOccupied(*it)) {
       continue;
@@ -595,51 +734,177 @@ bool PathPlannerNode::chooseExploreGoal(Eigen::Vector3d &goal_out, std::string &
       continue;
     }
 
-    Eigen::Vector3d dir = p - current_position_;
+    const octomap::OcTreeKey key = it.getKey();
+    const uint64_t packed = packKey(key);
+    if (cell_index.find(packed) != cell_index.end()) {
+      continue;
+    }
+
+    const size_t idx = cells.size();
+    cells.push_back(FrontierCell{key, p});
+    cell_index.emplace(packed, idx);
+  }
+
+  if (cells.empty()) {
+    return false;
+  }
+
+  // Step 2: Group connected frontier cells into clusters.
+  std::vector<uint8_t> visited(cells.size(), 0U);
+  const int neighbor_dirs[6][3] = {
+    {1, 0, 0}, {-1, 0, 0}, {0, 1, 0},
+    {0, -1, 0}, {0, 0, 1}, {0, 0, -1},
+  };
+
+  for (size_t i = 0; i < cells.size(); ++i) {
+    if (visited[i] != 0U) {
+      continue;
+    }
+
+    FrontierCluster cluster;
+    Eigen::Vector3d centroid_sum = Eigen::Vector3d::Zero();
+
+    std::queue<size_t> q;
+    q.push(i);
+    visited[i] = 1U;
+
+    while (!q.empty()) {
+      const size_t idx = q.front();
+      q.pop();
+
+      cluster.cells.push_back(cells[idx].pos);
+      centroid_sum += cells[idx].pos;
+
+      const octomap::OcTreeKey &key = cells[idx].key;
+      for (const auto &dir : neighbor_dirs) {
+        const int nx = static_cast<int>(key.k[0]) + dir[0];
+        const int ny = static_cast<int>(key.k[1]) + dir[1];
+        const int nz = static_cast<int>(key.k[2]) + dir[2];
+
+        if (nx < 0 || ny < 0 || nz < 0) {
+          continue;
+        }
+        if (nx > std::numeric_limits<uint16_t>::max() ||
+          ny > std::numeric_limits<uint16_t>::max() ||
+          nz > std::numeric_limits<uint16_t>::max())
+        {
+          continue;
+        }
+
+        octomap::OcTreeKey nkey;
+        nkey.k[0] = static_cast<uint16_t>(nx);
+        nkey.k[1] = static_cast<uint16_t>(ny);
+        nkey.k[2] = static_cast<uint16_t>(nz);
+        const auto it_neighbor = cell_index.find(packKey(nkey));
+        if (it_neighbor == cell_index.end()) {
+          continue;
+        }
+
+        const size_t nidx = it_neighbor->second;
+        if (visited[nidx] != 0U) {
+          continue;
+        }
+        visited[nidx] = 1U;
+        q.push(nidx);
+      }
+    }
+
+    if (static_cast<int>(cluster.cells.size()) < frontier_min_cluster_size_) {
+      continue;
+    }
+    cluster.centroid = centroid_sum / static_cast<double>(cluster.cells.size());
+    clusters_out.push_back(std::move(cluster));
+  }
+
+  return !clusters_out.empty();
+}
+
+bool PathPlannerNode::selectFrontierClusterGoal(
+  const std::vector<FrontierCluster> &clusters,
+  const Eigen::Vector3d &forward_hint,
+  Eigen::Vector3d &goal_out,
+  std::string &reason_out)
+{
+  if (clusters.empty()) {
+    return false;
+  }
+
+  // Step 1: Score cluster candidates and keep debug centroids for visualization.
+  debug_candidate_points_.clear();
+
+  bool found = false;
+  Eigen::Vector3d best_goal = current_position_;
+  double best_score = -std::numeric_limits<double>::infinity();
+
+  for (const auto &cluster : clusters) {
+    if (cluster.cells.empty()) {
+      continue;
+    }
+
+    debug_candidate_points_.push_back(cluster.centroid);
+
+    const double d = distance3(current_position_, cluster.centroid);
+    if (d < frontier_goal_dist_min_ || d > frontier_goal_dist_max_) {
+      continue;
+    }
+
+    const double clearance = estimateClearance(cluster.centroid, clearance_probe_radius_m_);
+    if (clearance < wall_clearance_min_) {
+      continue;
+    }
+
+    Eigen::Vector3d dir = cluster.centroid - current_position_;
     dir.z() = 0.0;
     if (dir.norm() < 1e-6) {
       continue;
     }
     dir.normalize();
-    const double forward = v_dir.isZero(1e-6) ? 0.0 : std::max(0.0, v_dir.dot(dir));
-    if (!v_dir.isZero(1e-6) && v_dir.dot(dir) < forward_min_dot_) {
+    const double forward = forward_hint.isZero(1e-6) ? 0.0 : std::max(0.0, forward_hint.dot(dir));
+    if (!forward_hint.isZero(1e-6) && forward_hint.dot(dir) < forward_min_dot_) {
       continue;
     }
 
+    const double size_score = static_cast<double>(cluster.cells.size());
     const double score =
-      score_unknown_weight_ * static_cast<double>(unknown_neighbors) +
+      score_unknown_weight_ * size_score +
       score_clearance_weight_ * clearance -
-      score_revisit_weight_ * revisitPenalty(p) +
-      score_distance_weight_ * d +
+      score_distance_weight_ * d -
+      score_revisit_weight_ * revisitPenalty(cluster.centroid) +
       score_forward_weight_ * forward;
 
-    push_top_candidate(score, p);
+    Eigen::Vector3d cluster_goal = cluster.centroid;
+    double best_cell_dist = std::numeric_limits<double>::infinity();
+    for (const auto &cell : cluster.cells) {
+      if (!isPointSafe(cell)) {
+        continue;
+      }
+      const double cd = distance3(cell, cluster.centroid);
+      if (cd < best_cell_dist) {
+        best_cell_dist = cd;
+        cluster_goal = cell;
+      }
+    }
+    if (!projectGoalToFree(cluster_goal)) {
+      continue;
+    }
 
     if (score > best_score) {
-      best_pos = p;
       best_score = score;
+      best_goal = cluster_goal;
       found = true;
     }
+  }
+
+  if (static_cast<int>(debug_candidate_points_.size()) > marker_max_candidates_) {
+    debug_candidate_points_.resize(static_cast<size_t>(marker_max_candidates_));
   }
 
   if (!found) {
     return false;
   }
 
-  debug_candidate_points_.clear();
-  debug_candidate_points_.reserve(top_candidates.size());
-  for (const auto &candidate : top_candidates) {
-    debug_candidate_points_.push_back(candidate.second);
-  }
-
-  // Step 3: Snap candidate to safe free map cell.
-  Eigen::Vector3d goal = best_pos;
-  if (!projectGoalToFree(goal)) {
-    return false;
-  }
-
-  goal_out = goal;
-  reason_out = "frontier";
+  goal_out = best_goal;
+  reason_out = "frontier_cluster";
   return true;
 }
 
@@ -724,13 +989,45 @@ bool PathPlannerNode::chooseFallbackGoal(Eigen::Vector3d &goal_out, std::string 
   return true;
 }
 
-bool PathPlannerNode::chooseReturnGoal(Eigen::Vector3d &goal_out, std::string &reason_out) const
+bool PathPlannerNode::chooseReturnGoal(Eigen::Vector3d &goal_out, std::string &reason_out)
 {
   if (!has_home_pose_) {
     return false;
   }
 
-  goal_out = home_position_;
+  if (return_phase_ != ReturnPhase::COMPLETE) {
+    if (breadcrumbs_.empty()) {
+      return_phase_ = ReturnPhase::FINAL_HOME;
+    } else if (return_breadcrumb_index_ < 0) {
+      return_breadcrumb_index_ = static_cast<int>(breadcrumbs_.size()) - 1;
+    }
+
+    while (return_breadcrumb_index_ >= 0 &&
+      return_breadcrumb_index_ < static_cast<int>(breadcrumbs_.size()))
+    {
+      const Eigen::Vector3d candidate = breadcrumbs_[static_cast<size_t>(return_breadcrumb_index_)];
+      if (distance3(current_position_, candidate) <= return_goal_reached_radius_m_) {
+        --return_breadcrumb_index_;
+        continue;
+      }
+      if (!isPointSafe(candidate)) {
+        --return_breadcrumb_index_;
+        continue;
+      }
+
+      goal_out = candidate;
+      reason_out = "return_trace";
+      return_phase_ = ReturnPhase::TRACE_PATH;
+      return true;
+    }
+  }
+
+  Eigen::Vector3d home_goal = home_position_;
+  if (!projectGoalToFree(home_goal)) {
+    return false;
+  }
+  return_phase_ = ReturnPhase::FINAL_HOME;
+  goal_out = home_goal;
   reason_out = "return_home";
   return true;
 }
@@ -967,6 +1264,107 @@ bool PathPlannerNode::resamplePath(
   waypoints_out = std::move(split_waypoints);
 
   return waypoints_out.size() >= 2;
+}
+
+bool PathPlannerNode::compressTrajectoryWaypoints(
+  const std::vector<Eigen::Vector3d> &waypoints_in,
+  std::vector<Eigen::Vector3d> &waypoints_out) const
+{
+  waypoints_out.clear();
+  if (waypoints_in.size() < 2) {
+    return false;
+  }
+
+  // Step 1: Keep short waypoint chains unchanged.
+  const int target_count = std::clamp(trajectory_waypoint_target_count_, 2, 12);
+  if (static_cast<int>(waypoints_in.size()) <= target_count) {
+    waypoints_out = waypoints_in;
+    return true;
+  }
+
+  // Step 2: Build cumulative arc length to sample evenly distributed support points.
+  std::vector<double> cumulative(waypoints_in.size(), 0.0);
+  for (size_t i = 1; i < waypoints_in.size(); ++i) {
+    cumulative[i] = cumulative[i - 1] + distance3(waypoints_in[i - 1], waypoints_in[i]);
+  }
+  const double total_length = cumulative.back();
+  if (total_length < 1e-6) {
+    waypoints_out.assign({waypoints_in.front(), waypoints_in.back()});
+    return true;
+  }
+
+  std::vector<size_t> selected_indices;
+  selected_indices.reserve(static_cast<size_t>(target_count));
+  selected_indices.push_back(0);
+
+  for (int k = 1; k < target_count - 1; ++k) {
+    const double desired = total_length * static_cast<double>(k) / static_cast<double>(target_count - 1);
+    auto it = std::lower_bound(cumulative.begin(), cumulative.end(), desired);
+    size_t idx = static_cast<size_t>(std::distance(cumulative.begin(), it));
+    idx = std::clamp(idx, selected_indices.back() + 1, waypoints_in.size() - 2);
+    selected_indices.push_back(idx);
+  }
+  selected_indices.push_back(waypoints_in.size() - 1);
+
+  // Step 3: Inject one strongest turn point so tight corners survive compression.
+  if (waypoints_in.size() >= 4 && target_count >= 4) {
+    size_t strongest_turn_idx = 1;
+    double strongest_turn_score = -1.0;
+    for (size_t i = 1; i + 1 < waypoints_in.size(); ++i) {
+      Eigen::Vector3d a = waypoints_in[i] - waypoints_in[i - 1];
+      Eigen::Vector3d b = waypoints_in[i + 1] - waypoints_in[i];
+      const double an = a.norm();
+      const double bn = b.norm();
+      if (an < 1e-6 || bn < 1e-6) {
+        continue;
+      }
+      a /= an;
+      b /= bn;
+      const double turn_score = 1.0 - std::clamp(a.dot(b), -1.0, 1.0);
+      if (turn_score > strongest_turn_score) {
+        strongest_turn_score = turn_score;
+        strongest_turn_idx = i;
+      }
+    }
+    bool already_selected = false;
+    for (const size_t idx : selected_indices) {
+      if (idx == strongest_turn_idx) {
+        already_selected = true;
+        break;
+      }
+    }
+    if (!already_selected && selected_indices.size() > 2) {
+      size_t replace_slot = 1;
+      size_t best_dist = std::numeric_limits<size_t>::max();
+      for (size_t s = 1; s + 1 < selected_indices.size(); ++s) {
+        const size_t d = (selected_indices[s] > strongest_turn_idx) ?
+          (selected_indices[s] - strongest_turn_idx) : (strongest_turn_idx - selected_indices[s]);
+        if (d < best_dist) {
+          best_dist = d;
+          replace_slot = s;
+        }
+      }
+      selected_indices[replace_slot] = strongest_turn_idx;
+      std::sort(selected_indices.begin(), selected_indices.end());
+      selected_indices.erase(std::unique(selected_indices.begin(), selected_indices.end()), selected_indices.end());
+    }
+  }
+
+  // Step 4: Convert indices to waypoints.
+  waypoints_out.reserve(selected_indices.size());
+  for (const size_t idx : selected_indices) {
+    waypoints_out.push_back(waypoints_in[idx]);
+  }
+
+  // Step 5: Safety guard - if compression breaks segment safety, use original chain.
+  if (waypoints_out.size() < 2) {
+    return false;
+  }
+  if (!isPathSafe(waypoints_out)) {
+    waypoints_out = waypoints_in;
+  }
+
+  return true;
 }
 
 bool PathPlannerNode::buildAndPublishTrajectory(
@@ -1236,6 +1634,52 @@ void PathPlannerNode::storeVisitedGoal(const Eigen::Vector3d &goal)
   }
 }
 
+void PathPlannerNode::storeBacktrackGoal(const Eigen::Vector3d &goal)
+{
+  if (!backtrack_enabled_) {
+    return;
+  }
+
+  if (!backtrack_goals_.empty()) {
+    if (distance3(goal, backtrack_goals_.back()) < backtrack_min_distance_m_) {
+      return;
+    }
+  }
+
+  backtrack_goals_.push_back(goal);
+  while (static_cast<int>(backtrack_goals_.size()) > backtrack_max_points_) {
+    backtrack_goals_.pop_front();
+  }
+}
+
+bool PathPlannerNode::popBacktrackGoal(Eigen::Vector3d &goal_out)
+{
+  if (!backtrack_enabled_) {
+    return false;
+  }
+
+  while (!backtrack_goals_.empty()) {
+    Eigen::Vector3d candidate = backtrack_goals_.back();
+    backtrack_goals_.pop_back();
+
+    if (distance3(candidate, current_position_) < backtrack_min_distance_m_) {
+      continue;
+    }
+
+    if (!projectGoalToFree(candidate)) {
+      continue;
+    }
+    if (!isPointSafe(candidate)) {
+      continue;
+    }
+
+    goal_out = candidate;
+    return true;
+  }
+
+  return false;
+}
+
 void PathPlannerNode::publishSelectedPath(const std::vector<Eigen::Vector3d> &path_points)
 {
   if (!selected_path_pub_ || path_points.empty()) {
@@ -1348,6 +1792,32 @@ bool PathPlannerNode::shouldReportDone() const
 
   // Keep exploring until all expected lanterns were observed.
   return static_cast<int>(tracked_lanterns_.size()) >= required_lantern_count_;
+}
+
+void PathPlannerNode::recordBreadcrumb(const Eigen::Vector3d &position)
+{
+  if (breadcrumbs_.empty()) {
+    breadcrumbs_.push_back(position);
+    return;
+  }
+
+  if (distance3(position, breadcrumbs_.back()) < breadcrumb_min_spacing_m_) {
+    return;
+  }
+
+  breadcrumbs_.push_back(position);
+  while (static_cast<int>(breadcrumbs_.size()) > breadcrumb_max_points_) {
+    breadcrumbs_.pop_front();
+    if (return_breadcrumb_index_ >= 0) {
+      --return_breadcrumb_index_;
+    }
+  }
+}
+
+void PathPlannerNode::resetReturnHomeState()
+{
+  return_phase_ = ReturnPhase::INACTIVE;
+  return_breadcrumb_index_ = -1;
 }
 
 void PathPlannerNode::publishHeartbeat(uint8_t state, const std::string &info) const

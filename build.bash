@@ -20,7 +20,23 @@ sudo apt-get install -y --no-install-recommends \
 
 echo "[1/4] Building colcon workspace..."
 cd "${ROS_WS}"
-colcon build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+# Guard against stale local glog artifacts in the overlay install tree.
+# They can shadow the system glog headers and cause linker symbol mismatches.
+MAV_TRAJ_INSTALL="${ROS_WS}/install/mav_trajectory_generation"
+if [[ -d "${MAV_TRAJ_INSTALL}" ]]; then
+  rm -rf "${MAV_TRAJ_INSTALL}/include/glog" \
+         "${MAV_TRAJ_INSTALL}/lib/cmake/glog" \
+         "${MAV_TRAJ_INSTALL}/lib/libglog.so.0" \
+         "${MAV_TRAJ_INSTALL}/lib/libglog.so"
+fi
+
+mapfile -t COLCON_BASE_PATHS < <(
+  find src -mindepth 1 -maxdepth 1 -type d ! -name path_planning_pkg_old | sort
+)
+colcon build \
+  --base-paths "${COLCON_BASE_PATHS[@]}" \
+  --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 echo "Build OK."
 
 # echo "[2/4] Ensuring destination exists..."

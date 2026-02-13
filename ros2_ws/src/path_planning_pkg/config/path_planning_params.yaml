@@ -35,7 +35,14 @@ path_planner:
     frontier_goal_dist_max: 18.0
     frontier_unknown_min_neighbors: 3
     frontier_known_free_min_neighbors: 10
+    frontier_min_cluster_size: 5
     max_frontier_fail_cycles: 8
+    backtrack_enabled: true
+    backtrack_min_distance_m: 7.0
+    backtrack_max_points: 60
+    breadcrumb_min_spacing_m: 1.0
+    breadcrumb_max_points: 2000
+    return_goal_reached_radius_m: 0.9
 
     # OMPL tuning
     ompl_timeout_sec: 0.35
@@ -61,4 +68,5 @@ path_planner:
     adaptive_step_clearance_range_m: 2.5
     adaptive_step_turn_weight: 0.85
     adaptive_step_min_ratio: 0.10
+    trajectory_waypoint_target_count: 5
     marker_max_candidates: 120

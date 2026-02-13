@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <deque>
 
 #include <Eigen/Core>
 
@@ -22,10 +23,22 @@ public:
   PathPlannerNode();
 
 private:
+  struct FrontierCluster {
+    std::vector<Eigen::Vector3d> cells;
+    Eigen::Vector3d centroid{Eigen::Vector3d::Zero()};
+  };
+
   enum class PlannerMode : uint8_t {
     IDLE = 0,
     EXPLORE = 1,
     RETURN_HOME = 2,
+  };
+  enum class ReturnPhase : uint8_t {
+    INACTIVE = 0,
+    TRACE_PATH = 1,
+    RECOVERY_OMPL = 2,
+    FINAL_HOME = 3,
+    COMPLETE = 4,
   };
 
   // Core callbacks
@@ -47,8 +60,15 @@ private:
   bool chooseGoal(Eigen::Vector3d &goal_out, std::string &reason_out);
   bool chooseExploreGoal(Eigen::Vector3d &goal_out, std::string &reason_out);
   bool chooseFallbackGoal(Eigen::Vector3d &goal_out, std::string &reason_out);
-  bool chooseReturnGoal(Eigen::Vector3d &goal_out, std::string &reason_out) const;
+  bool computeFrontierClusters(std::vector<FrontierCluster> &clusters_out) const;
+  bool selectFrontierClusterGoal(
+    const std::vector<FrontierCluster> &clusters,
+    const Eigen::Vector3d &forward_hint,
+    Eigen::Vector3d &goal_out,
+    std::string &reason_out);
+  bool chooseReturnGoal(Eigen::Vector3d &goal_out, std::string &reason_out);
   bool projectGoalToFree(Eigen::Vector3d &goal_in_out) const;
+  bool popBacktrackGoal(Eigen::Vector3d &goal_out);
 
   bool planPathOmpl(
     const Eigen::Vector3d &start,
@@ -57,6 +77,9 @@ private:
 
   bool resamplePath(
     const std::vector<Eigen::Vector3d> &path_in,
+    std::vector<Eigen::Vector3d> &waypoints_out) const;
+  bool compressTrajectoryWaypoints(
+    const std::vector<Eigen::Vector3d> &waypoints_in,
     std::vector<Eigen::Vector3d> &waypoints_out) const;
 
   bool buildAndPublishTrajectory(
@@ -78,7 +101,10 @@ private:
   // Mission helper logic
   bool hasReachedGoal() const;
   void storeVisitedGoal(const Eigen::Vector3d &goal);
+  void storeBacktrackGoal(const Eigen::Vector3d &goal);
   bool shouldReportDone() const;
+  void recordBreadcrumb(const Eigen::Vector3d &position);
+  void resetReturnHomeState();
   void publishHeartbeat(uint8_t state, const std::string &info) const;
   void publishPlanningVisualization(
     const std::vector<Eigen::Vector3d> &ompl_path,
@@ -133,7 +159,14 @@ private:
   double bounds_padding_m_{1.0};
   int frontier_unknown_min_neighbors_{2};
   int frontier_known_free_min_neighbors_{8};
+  int frontier_min_cluster_size_{5};
   int max_frontier_fail_cycles_{8};
+  bool backtrack_enabled_{true};
+  double backtrack_min_distance_m_{7.0};
+  int backtrack_max_points_{60};
+  double breadcrumb_min_spacing_m_{1.0};
+  int breadcrumb_max_points_{2000};
+  double return_goal_reached_radius_m_{0.9};
   int required_lantern_count_{5};
   double lantern_merge_dist_m_{0.2};
   double score_unknown_weight_{1.2};
@@ -147,6 +180,7 @@ private:
   double adaptive_step_clearance_range_m_{2.0};
   double adaptive_step_turn_weight_{0.7};
   double adaptive_step_min_ratio_{0.35};
+  int trajectory_waypoint_target_count_{5};
   int marker_max_candidates_{120};
 
   // Runtime state
@@ -156,6 +190,9 @@ private:
   bool has_home_pose_{false};
   bool has_octomap_{false};
   bool has_current_goal_{false};
+  bool current_goal_from_backtrack_{false};
+  ReturnPhase return_phase_{ReturnPhase::INACTIVE};
+  int return_breadcrumb_index_{-1};
 
   int frontier_fail_cycles_{0};
   Eigen::Vector3d current_position_{Eigen::Vector3d::Zero()};
@@ -168,6 +205,8 @@ private:
   std::vector<Eigen::Vector3d> visited_goals_;
   std::vector<Eigen::Vector3d> tracked_lanterns_;
   std::vector<Eigen::Vector3d> debug_candidate_points_;
+  std::deque<Eigen::Vector3d> backtrack_goals_;
+  std::deque<Eigen::Vector3d> breadcrumbs_;
 
   std::shared_ptr<octomap::OcTree> octree_;
 };
