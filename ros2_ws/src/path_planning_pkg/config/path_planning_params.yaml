@@ -1,6 +1,64 @@
 path_planner:
   ros__parameters:
     use_sim_time: false
+
+    # Topics
     command_topic: "statemachine/cmd"
     heartbeat_topic: "heartbeat"
+    odom_topic: "current_state_est"
+    octomap_topic: "octomap_binary"
+    trajectory_topic: "trajectory"
+    lantern_topic: "detected_lanterns"
+    marker_topic: "path_planner/viz/markers"
+    selected_path_topic: "path_planner/selected_path"
+    viz_frame_id: "world"
+
+    # Timers
+    planner_period_sec: 1.0
     heartbeat_period_sec: 1.0
+    parameter_refresh_period_sec: 10.0
+
+    # Core flight tuning (runtime-updatable)
+    max_v: 2.3
+    max_a: 1.4
+    waypoint_dist_min: 3.2
+    waypoint_dist_max: 6.5
+    wall_clearance_min: 1.6
+    path_check_step_m: 0.2
+
+    # Replan behavior
+    goal_reached_radius_m: 0.9
+    replan_timeout_sec: 8.0
+
+    # Frontier exploration tuning
+    frontier_goal_dist_min: 7.5
+    frontier_goal_dist_max: 22.0
+    frontier_unknown_min_neighbors: 3
+    frontier_known_free_min_neighbors: 8
+    max_frontier_fail_cycles: 8
+
+    # OMPL tuning
+    ompl_timeout_sec: 0.25
+    ompl_range_m: 3.0
+    bounds_padding_m: 1.0
+
+    # Clearance estimation
+    clearance_probe_radius_m: 4.0
+
+    # Lantern-driven completion gate
+    required_lantern_count: 5
+    lantern_merge_dist_m: 0.2
+
+    # Candidate scoring
+    score_unknown_weight: 1.0
+    score_clearance_weight: 1.5
+    score_distance_weight: 0.7
+    score_revisit_weight: 1.4
+    score_forward_weight: 1.7
+    heading_hint_min_speed: 0.25
+    forward_min_dot: -0.10
+    adaptive_waypoint_step_enabled: true
+    adaptive_step_clearance_range_m: 2.0
+    adaptive_step_turn_weight: 0.7
+    adaptive_step_min_ratio: 0.35
+    marker_max_candidates: 120

@@ -3,19 +3,22 @@
 <package format="3">
   <name>path_planning_pkg</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Path planner for cave exploration using Octomap, OMPL and polynomial trajectories.</description>
   <maintainer email="lkitzbichler@gmail.com">leon</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
-  <depend>std_msgs</depend>
   <depend>statemachine_pkg</depend>
-  <depend>nav2_core</depend>
-  <depend>nav2_util</depend>
-  <depend>nav2_msgs</depend>
-  <depend>nav2_costmap_2d</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>octomap</depend>
+  <depend>octomap_msgs</depend>
+  <depend>mav_planning_msgs</depend>
+  <depend>mav_trajectory_generation</depend>
+  <depend>ompl</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
