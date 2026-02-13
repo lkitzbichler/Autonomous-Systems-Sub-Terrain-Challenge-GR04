@@ -76,7 +76,9 @@ private:
   Eigen::Vector3d xd;       // desired position
   Eigen::Vector3d vd;       // desired velocity
   Eigen::Vector3d ad;       // desired acceleration
-  double yawd;              // desired yaw angle
+  double yawd{0.0};         // desired yaw angle
+  bool yaw_initialized_{false}; // True once yaw command is initialized
+  double yaw_from_vel_min_xy_{0.2}; // Min XY speed to update yaw from velocity
 
   double hz;                // control loop frequency [Hz]
   bool received_desired;    // flag to check if desired state has been received

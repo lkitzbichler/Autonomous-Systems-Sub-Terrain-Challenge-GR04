@@ -1,10 +1,9 @@
 # todo: add controller parameters here
 
 controller_node:
-  ros__parameters: 
+  ros__parameters:
     kx: 8.0
     kv: 6.0
     kr: 5.0
     komega: 1.2
-    
-    
+    yaw_from_vel_min_xy: 0.25

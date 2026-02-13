@@ -57,6 +57,7 @@ private: // VARIABLES and STRUCTS
 
     MissionStates state_ {MissionStates::WAITING}; // Current mission state
     rclcpp::Time state_enter_time_{0, 0, RCL_ROS_TIME}; // Time when the current state was entered
+    rclcpp::Time last_takeoff_cmd_time_{0, 0, RCL_ROS_TIME}; // Last periodic TAKEOFF command dispatch
     Commands last_cmd_ {Commands::NONE}; // Last command sent (for logging)
 
     std::vector<NodeInfo> nodes_; // List of nodes to monitor for heartbeats
@@ -103,6 +104,7 @@ private: // PARAMETERS
     double pub_state_loop_sec_;             // Period for publishing state
     double alive_tol_sec_;                  // Time after which a node is considered dead if no heartbeat is received
     double boot_timeout_sec_;               // Max time allowed to wait for nodes in WAITING/BOOT
+    double takeoff_cmd_retry_sec_;          // Retry period for TAKEOFF command while state is TAKEOFF
     double checkpoint_reach_dist_m_;        // Distance threshold for reaching a checkpoint
     double path_sample_dist_m_;             // Min distance between path samples
     double landing_xy_radius_m_;            // XY search radius for local ground estimation

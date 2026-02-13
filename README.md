@@ -58,7 +58,7 @@
 | R5 | Autonomous exploration | The drone explores the cave using path planning. | Autonomous navigation continues beyond the entrance without manual control. |
 | R6 | Mapping and voxel map | A voxel map (octomap) is built during exploration. | A 3D occupancy/voxel map is produced and visualizable. |
 | R7 | Lantern detection and localization | Lanterns are detected and their positions are estimated. | Detected lantern poses are produced and logged. |
-| R8 | Goal landing | The drone lands at the designated goal/exit point. | Mission ends with a controlled landing at the goal. |
+| R8 | Return-and-land | The drone returns to the start area after exploration and then lands. | Mission ends with controlled landing after return-home. |
 | R9 | Team collaboration repo | The repository supports collaborative development. | Version control workflow is in place and documented. |
 | R10 | One-command startup | The full system can be built and run from one entry point. | `build.bash` builds; `run.bash` launches the full system via launch files. |
 
@@ -307,7 +307,7 @@ flowchart LR
 
   planner -- "trajectory (mav_planning_msgs::msg::PolynomialTrajectory4D)" --> sampler
 
-  path_planner -- "no trajectory output (todo)" --> sampler
+  path_planner -- "trajectory (mav_planning_msgs::msg::PolynomialTrajectory4D)" --> sampler
 
   sampler -- "command/trajectory (trajectory_msgs::msg::MultiDOFJointTrajectory)" --> controller
 
@@ -396,7 +396,7 @@ sequenceDiagram
 
     %% Trajectory flow
     BP->>TS: trajectory (PolynomialTrajectory4D)
-    PP->>TS: no trajectory output (todo)
+    PP->>TS: trajectory (PolynomialTrajectory4D)
     TS->>CTRL: command/trajectory (MultiDOFJointTrajectory)
 
     %% Control output to simulation
@@ -413,6 +413,7 @@ stateDiagram-v2
   state "TAKEOFF<br>takeoff sequence" as TAKEOFF
   state "TRAVELLING<br>fixed trajectory" as TRAVELLING
   state "EXPLORING<br>autonomous explore" as EXPLORING
+  state "RETURN_HOME<br>go back to start checkpoint" as RETURN_HOME
   state "LAND<br>landing command" as LAND
   state "DONE<br>mission finished" as DONE
   state "ERROR<br>failure/timeout" as ERROR
@@ -422,7 +423,8 @@ stateDiagram-v2
   WAITING --> TAKEOFF: all nodes online + start checkpoint available
   TAKEOFF --> TRAVELLING: checkpoint 0 reached
   TRAVELLING --> EXPLORING: checkpoint 1 reached
-  EXPLORING --> LAND: planner DONE + 5 lanterns
+  EXPLORING --> RETURN_HOME: planner DONE + 5 lanterns
+  RETURN_HOME --> LAND: return-home target reached (takeoff start checkpoint)
   LAND --> DONE: landing checkpoint reached
 
   DONE --> [*]
