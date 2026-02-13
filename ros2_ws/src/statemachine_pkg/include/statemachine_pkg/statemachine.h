@@ -151,7 +151,7 @@ public: //CONSTRUCTOR & METHODS
 
     void onLanternDetections(const geometry_msgs::msg::PoseArray::SharedPtr msg);   // Handle lantern detections
     void onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg); // Update local octomap cache
-    void associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, geometry_msgs::msg::Point &mean_out, size_t &count_out);  // Associate a new lantern detection with existing tracks or create a new track, returning whether it's new, the mean position, and count of detections
+    void associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, int &id_out, geometry_msgs::msg::Point &mean_out, size_t &count_out);  // Associate a new lantern detection with existing tracks or create a new track
     void onCurrentStateEst(const nav_msgs::msg::Odometry::SharedPtr msg); // Update current position from state estimate
 
     void onTimer(); // Timer callback for periodic tasks like publishing state and checking node heartbeats

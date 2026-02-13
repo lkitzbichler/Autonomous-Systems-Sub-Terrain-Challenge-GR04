@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -57,7 +58,7 @@ StateMachine::StateMachine() : Node("state_machine_node")
     this->node_waypoint_index_ = declare_parameter<int>("node_roles.waypoint_index", -1);
     this->node_planner_index_ = declare_parameter<int>("node_roles.planner_index", -1);
     // Lantern detections
-    this->min_lantern_dist_ = declare_parameter<double>("lanterns.lantern_merge_dist_m", 0.2);
+    this->min_lantern_dist_ = declare_parameter<double>("lanterns.lantern_merge_dist_m", 1.5);
     // Logging paths
     this->lantern_log_path_ = declare_parameter<std::string>("logging.lantern_log_path", "lanterns_log.csv");
     this->event_log_path_ = declare_parameter<std::string>("logging.event_log_path", "statemachine_events.log");
@@ -400,34 +401,12 @@ void StateMachine::onLanternDetections(const geometry_msgs::msg::PoseArray::Shar
     // Step 2: Process each detection and update/insert a track
     for (const auto &pose : msg->poses) {
         bool is_new = false;
+        int id = -1;
         geometry_msgs::msg::Point mean;
         size_t count = 0;
 
         // Associate detection with existing tracks or create a new one
-        associateLantern(pose.position, is_new, mean, count);
-
-        // Step 3: Resolve the track id for logging
-        int id = -1;
-        double best_dist = std::numeric_limits<double>::max();
-        for (const auto &track : lantern_tracks_) {
-            if (track.count != count) {
-                continue; // Skip mismatched sample counts
-            }
-            const double dist = distance3(track.mean, mean);
-            if (dist < best_dist) {
-                best_dist = dist;
-                id = track.id;
-            }
-        }
-        if (id < 0) {
-            for (const auto &track : lantern_tracks_) {
-                const double dist = distance3(track.mean, mean);
-                if (dist < best_dist) {
-                    best_dist = dist;
-                    id = track.id;
-                }
-            }
-        }
+        associateLantern(pose.position, is_new, id, mean, count);
 
         // Step 4: Build a stamped pose for CSV logging
         geometry_msgs::msg::PoseStamped stamped;
@@ -438,9 +417,11 @@ void StateMachine::onLanternDetections(const geometry_msgs::msg::PoseArray::Shar
         // Persist track info to CSV
         logLanternPose(stamped, id, count);
 
-        // Step 5: Optional info log for new tracks
+        // Step 5: Track log
         if (is_new) {
-            logEvent("[Lantern]: new track created");
+            logEvent("[Lantern] found lantern " + std::to_string(id) + " 1 times");
+        } else {
+            logEvent("[Lantern] found lantern " + std::to_string(id) + " " + std::to_string(count) + " times");
         }
     }
 }
@@ -452,7 +433,7 @@ void StateMachine::onLanternDetections(const geometry_msgs::msg::PoseArray::Shar
  * @param mean_out Updated mean position of the associated track.
  * @param count_out Updated sample count for the associated track.
  */
-void StateMachine::associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, geometry_msgs::msg::Point &mean_out, size_t &count_out)
+void StateMachine::associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, int &id_out, geometry_msgs::msg::Point &mean_out, size_t &count_out)
 {
     // Step 1: Find nearest existing track within merge distance
     int best_index = -1;
@@ -476,6 +457,7 @@ void StateMachine::associateLantern(const geometry_msgs::msg::Point &pos, bool &
         lantern_tracks_.push_back(track);
 
         is_new = true;
+        id_out = track.id;
         mean_out = pos;
         count_out = track.count;
         return;
@@ -490,6 +472,7 @@ void StateMachine::associateLantern(const geometry_msgs::msg::Point &pos, bool &
     track.samples.push_back(pos);
 
     is_new = false;
+    id_out = track.id;
     mean_out = track.mean;
     count_out = track.count;
 }
@@ -1006,7 +989,8 @@ void StateMachine::logLanternPose(const geometry_msgs::msg::PoseStamped &pose, i
     }
 
     // Step 5: Compose/replace the row for (id, date, user)
-    const std::string user = this->get_name();
+    const char *user_env = std::getenv("USER");
+    const std::string user = (user_env && *user_env) ? std::string(user_env) : std::string("unknown");
     const std::string id_str = std::to_string(id);
     const std::string date_str = date.str();
     const std::string new_line = id_str + "," + date_str + "," +
