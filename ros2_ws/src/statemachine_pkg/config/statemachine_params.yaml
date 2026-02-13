@@ -20,7 +20,7 @@ state_machine_node:
       boot_timeout_sec: 60.0
       takeoff_cmd_retry_sec: 1.5
     lanterns:
-      lantern_merge_dist_m: 0.2
+      lantern_merge_dist_m: 1.5
     checkpoints:
       positions:
         [-320.0, 9.0, 16.0]
