@@ -3,19 +3,18 @@
 <package format="3">
   <name>path_planning_pkg</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Path planner package for cave exploration and return-home routing.</description>
   <maintainer email="lkitzbichler@gmail.com">leon</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>octomap_msgs</depend>
+  <depend>mav_planning_msgs</depend>
   <depend>statemachine_pkg</depend>
-  <depend>nav2_core</depend>
-  <depend>nav2_util</depend>
-  <depend>nav2_msgs</depend>
-  <depend>nav2_costmap_2d</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

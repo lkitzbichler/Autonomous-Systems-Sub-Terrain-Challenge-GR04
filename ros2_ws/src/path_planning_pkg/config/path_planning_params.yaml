@@ -1,6 +1,20 @@
 path_planner:
   ros__parameters:
     use_sim_time: false
-    command_topic: "statemachine/cmd"
-    heartbeat_topic: "heartbeat"
-    heartbeat_period_sec: 1.0
+    topics:
+      command_topic: "statemachine/cmd"
+      state_topic: "statemachine/state"
+      heartbeat_topic: "heartbeat"
+      odom_topic: "current_state_est"
+      map_topic: "octomap_binary"
+      trajectory_topic: "trajectory"
+    time:
+      loop_period_sec: 0.2
+      heartbeat_period_sec: 1.0
+      command_stale_sec: 5.0
+      heartbeat_on_mode_change: true
+    commands:
+      accept_empty_target: false
+      accept_switch_to_explore_cmd: true
+    graph:
+      transit_node_spacing_m: 10.0
