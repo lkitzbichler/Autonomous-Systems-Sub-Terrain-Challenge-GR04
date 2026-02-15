@@ -21,6 +21,8 @@ state_machine_node:
       takeoff_cmd_retry_sec: 1.5
     lanterns:
       lantern_merge_dist_m: 1.5
+    mission:
+      min_lanterns_for_return: 0
     checkpoints:
       positions:
         [-320.0, 9.0, 16.0]

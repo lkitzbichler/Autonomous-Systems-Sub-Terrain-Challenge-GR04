@@ -59,6 +59,7 @@ StateMachine::StateMachine() : Node("state_machine_node")
     this->node_planner_index_ = declare_parameter<int>("node_roles.planner_index", -1);
     // Lantern detections
     this->min_lantern_dist_ = declare_parameter<double>("lanterns.lantern_merge_dist_m", 1.5);
+    this->min_lanterns_for_return_ = declare_parameter<int>("mission.min_lanterns_for_return", 0);
     // Logging paths
     this->lantern_log_path_ = declare_parameter<std::string>("logging.lantern_log_path", "lanterns_log.csv");
     this->event_log_path_ = declare_parameter<std::string>("logging.event_log_path", "statemachine_events.log");
@@ -179,6 +180,10 @@ void StateMachine::changeState(MissionStates new_state, const std::string &reaso
                 target.y = checkpoint_positions_.front().y();
                 target.z = checkpoint_positions_.front().z();
                 sendCommandWithTarget(node_waypoint, Commands::TAKEOFF, target);
+                if (!node_planner.empty()) {
+                    // Seed planner graph with takeoff target as graph-home/start node.
+                    sendCommandWithTarget(node_planner, Commands::TAKEOFF, target);
+                }
                 last_takeoff_cmd_time_ = this->now();
             } else if (!node_waypoint.empty()) {
                 logEvent("[TAKEOFF] no checkpoint available for takeoff target");
@@ -494,6 +499,7 @@ void StateMachine::onTimer()
     // Step 5: Retry TAKEOFF command while waiting for first successful takeoff trajectory.
     if (state_ == MissionStates::TAKEOFF) {
         const std::string node_waypoint = nodeNameByIndex(node_waypoint_index_);
+        const std::string node_planner = nodeNameByIndex(node_planner_index_);
         if (!node_waypoint.empty() && !checkpoint_positions_.empty()) {
             const auto now = this->now();
             const double retry_sec = std::max(0.2, takeoff_cmd_retry_sec_);
@@ -505,6 +511,10 @@ void StateMachine::onTimer()
                 target.y = checkpoint_positions_.front().y();
                 target.z = checkpoint_positions_.front().z();
                 sendCommandWithTarget(node_waypoint, Commands::TAKEOFF, target);
+                if (!node_planner.empty()) {
+                    // Keep planner home-seed synchronized even if planner restarts during TAKEOFF.
+                    sendCommandWithTarget(node_planner, Commands::TAKEOFF, target);
+                }
                 last_takeoff_cmd_time_ = now;
                 logEvent("[TAKEOFF] retry command sent");
             }
@@ -672,7 +682,8 @@ void StateMachine::handleFlagEvents()
 
     // Step 3: Exploration complete condition
     if (state_ == MissionStates::EXPLORING) {
-        if (planner_done_ && lantern_tracks_.size() >= 5) {
+        const int min_lanterns = std::max(0, min_lanterns_for_return_);
+        if (planner_done_ && static_cast<int>(lantern_tracks_.size()) >= min_lanterns) {
             changeState(MissionStates::RETURN_HOME, "exploration complete");
         }
     }

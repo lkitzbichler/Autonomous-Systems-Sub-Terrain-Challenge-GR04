@@ -113,6 +113,7 @@ private: // PARAMETERS
 
     // LANTERNS
     double min_lantern_dist_;               // Minimum distance to consider a new lantern detection as the same as an existing track and merge it
+    int min_lanterns_for_return_;           // Minimum tracked lanterns required before RETURN_HOME (0 disables this gate)
 
     // TOPICS
     // State

@@ -19,46 +19,62 @@ path_planner:
     parameter_refresh_period_sec: 10.0
 
     # Core flight tuning (runtime-updatable)
-    max_v: 2.2
-    max_a: 1.3
-    waypoint_dist_min: 2.2
-    waypoint_dist_max: 6.0
-    wall_clearance_min: 1.4
+    max_v: 1.8
+    max_a: 0.8
+    waypoint_dist_min: 7.0
+    waypoint_dist_max: 14.0
+    wall_clearance_min: 2.0
     path_check_step_m: 0.15
+    clearance_probe_radius_m: 5.0
 
     # Replan behavior
     goal_reached_radius_m: 0.9
-    replan_timeout_sec: 6.0
-
-    # Frontier exploration tuning
-    frontier_goal_dist_min: 5.5
-    frontier_goal_dist_max: 18.0
-    frontier_unknown_min_neighbors: 3
-    frontier_known_free_min_neighbors: 10
-    max_frontier_fail_cycles: 8
+    replan_timeout_sec: 3.0
+    active_path_follow_dist_m: 2.5
+    active_path_replan_progress_ratio: 0.22
+    active_path_replan_front_obstacle_m: 12.0
+    max_frontier_fail_cycles: 6
 
     # OMPL tuning
     ompl_timeout_sec: 0.35
-    ompl_range_m: 2.6
+    ompl_range_m: 2.4
+    ompl_max_turn_deg: 70.0
+    ompl_corner_smoothing_passes: 4
+    ompl_corner_blend: 0.75
     bounds_padding_m: 1.0
 
-    # Clearance estimation
-    clearance_probe_radius_m: 5.0
+    # Graph exploration tuning
+    graph_backbone_spacing_m: 6.0
+    graph_explore_spacing_m: 3.4
+    graph_merge_dist_m: 1.6
+    graph_junction_probe_dist_m: 3.5
+    graph_branch_goal_dist_m: 15.0
+    graph_branch_merge_dist_m: 2.0
+    graph_frontier_revisit_penalty: 1.2
+    graph_forward_bias_weight: 0.9
+    graph_vertical_penalty_weight: 1.4
+    graph_view_align_weight: 1.5
+    graph_center_search_radius_m: 2.4
+    graph_min_junction_free_dirs: 3
+    graph_max_frontiers_per_node: 8
+    centerline_horizon_points: 8
+    centerline_step_m: 5.0
+    centerline_slice_half_extent_m: 5.0
+    centerline_slice_step_m: 0.6
+    centerline_min_component_cells: 4
+    centerline_max_secondary_goals: 4
+    centerline_execute_dist_m: 30.0
+    centerline_min_commit_dist_m: 20.0
+    body_yaw_correction_deg: 180.0
 
-    # Lantern-driven completion gate
-    required_lantern_count: 5
+    # Misc
     lantern_merge_dist_m: 1.5
-
-    # Candidate scoring
-    score_unknown_weight: 1.1
-    score_clearance_weight: 2.0
-    score_distance_weight: 0.4
-    score_revisit_weight: 1.4
-    score_forward_weight: 1.4
     heading_hint_min_speed: 0.25
-    forward_min_dot: -0.25
     adaptive_waypoint_step_enabled: true
     adaptive_step_clearance_range_m: 2.5
-    adaptive_step_turn_weight: 0.85
-    adaptive_step_min_ratio: 0.10
+    adaptive_step_turn_weight: 0.40
+    adaptive_step_min_ratio: 0.60
+    traj_start_speed_max_ratio: 0.35
+    traj_start_align_cos_min: 0.55
+    traj_time_scale: 1.35
     marker_max_candidates: 120
