@@ -8,6 +8,7 @@ path_planner:
       odom_topic: "current_state_est"
       map_topic: "octomap_binary"
       trajectory_topic: "trajectory"
+      graph_markers_topic: "path_planner/graph_markers"
     time:
       loop_period_sec: 0.2
       heartbeat_period_sec: 1.0
@@ -26,3 +27,5 @@ path_planner:
       clearance_search_max_m: 8.0
     graph:
       transit_node_spacing_m: 10.0
+      merge_radius_m: 3.0
+      ahead_query_dist_m: 12.0

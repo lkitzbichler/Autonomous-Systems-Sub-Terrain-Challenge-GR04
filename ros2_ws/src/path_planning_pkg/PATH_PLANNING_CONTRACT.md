@@ -86,6 +86,25 @@ The planner provides a reusable map adapter interface:
 
 These checks run in planning frame coordinates and apply safety inflation.
 
+### 2.4 Graph Core API (planner-internal)
+
+The planner maintains a persistent topological graph:
+
+- Node fields:
+  - `id, position, stamp, status, frontier_score, loop_id, is_transit`
+- Edge fields:
+  - `from_id, to_id, length_m, cost, valid`
+
+Core operations:
+
+- `add_or_merge_node(point, merge_radius)`
+- `upsert_edge(from_id, to_id)`
+- `find_nearest_node(point, radius)`
+- `find_nearby_nodes(point, radius)`
+
+Deterministic tie-break:
+- nearest node by distance, then lower node id.
+
 ## 3. Event and Status Mapping (without new messages)
 
 Until dedicated planner event messages exist, planner events are encoded via

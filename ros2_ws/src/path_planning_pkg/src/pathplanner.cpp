@@ -9,6 +9,7 @@
 #include <octomap/OcTree.h>
 #include <octomap/octomap.h>
 #include <octomap_msgs/conversions.h>
+#include <visualization_msgs/msg/marker.hpp>
 
 namespace {
 
@@ -38,6 +39,8 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
     topic_odom_ = declare_parameter<std::string>("topics.odom_topic", "current_state_est");
     topic_octomap_ = declare_parameter<std::string>("topics.map_topic", "octomap_binary");
     topic_trajectory_ = declare_parameter<std::string>("topics.trajectory_topic", "trajectory");
+    topic_graph_markers_ =
+        declare_parameter<std::string>("topics.graph_markers_topic", "path_planner/graph_markers");
 
     // Timing
     loop_period_sec_ = declare_parameter<double>("time.loop_period_sec", 0.2);
@@ -62,11 +65,14 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
 
     // Graph recording
     transit_node_spacing_m_ = declare_parameter<double>("graph.transit_node_spacing_m", 10.0);
+    graph_merge_radius_m_ = declare_parameter<double>("graph.merge_radius_m", 3.0);
+    graph_ahead_query_dist_m_ = declare_parameter<double>("graph.ahead_query_dist_m", 12.0);
 
     // Publishers ###################################################################################
     pub_heartbeat_ = create_publisher<statemachine_pkg::msg::Answer>(topic_heartbeat_, 10);
     pub_trajectory_ =
         create_publisher<mav_planning_msgs::msg::PolynomialTrajectory4D>(topic_trajectory_, 10);
+    pub_graph_markers_ = create_publisher<visualization_msgs::msg::MarkerArray>(topic_graph_markers_, 10);
 
     // Subscribers ##################################################################################
     sub_cmd_ = create_subscription<statemachine_pkg::msg::Command>(
@@ -270,6 +276,9 @@ void PathPlanner::onTimer()
         publishHeartbeat();
         last_heartbeat_time_ = now;
     }
+
+    // Step 3: Publish graph visualization for runtime inspection.
+    publishGraphMarkers();
 }
 
 // #################################################################################################
@@ -312,25 +321,46 @@ void PathPlanner::updateTransitGateFromState(const std::string &sm_state)
 
 void PathPlanner::tryRecordTransitNode()
 {
+    // Step 0: Require valid odometry
     if (!hasValidOdom()) {
         return;
     }
 
     const auto &pos = latest_odom_.pose.pose.position;
+    const double spacing_m = std::max(0.1, transit_node_spacing_m_);
 
-    // Step 1: Always record first node.
-    if (transit_nodes_.empty()) {
+    // Step 1: Enforce spacing against the last accepted transit graph node.
+    if (last_transit_graph_node_id_ > 0) {
+        const auto *last_node = findNodeById(last_transit_graph_node_id_);
+        if (last_node && distance3(last_node->position, pos) < spacing_m) {
+            return;
+        }
+    }
+
+    // Step 2: Insert or merge node into persistent graph (duplicate suppression).
+    bool inserted_new = false;
+    const int node_id = addOrMergeGraphNode(pos, true, inserted_new);
+    if (node_id <= 0) {
+        return;
+    }
+
+    // Step 3: Maintain edge continuity for transit path recording.
+    if (last_transit_graph_node_id_ > 0 && last_transit_graph_node_id_ != node_id) {
+        upsertGraphEdge(last_transit_graph_node_id_, node_id);
+    }
+
+    // Step 4: Lightweight legacy breadcrumb list for debug continuity.
+    if (inserted_new || transit_nodes_.empty()) {
         transit_nodes_.push_back(TransitNode{next_transit_node_id_++, pos, this->now()});
-        return;
     }
 
-    // Step 2: Record only if spacing threshold is reached.
-    const auto &last = transit_nodes_.back().position;
-    if (distance3(last, pos) < std::max(0.1, transit_node_spacing_m_)) {
-        return;
-    }
+    // Step 5: Advance transit cursor.
+    last_transit_graph_node_id_ = node_id;
 
-    transit_nodes_.push_back(TransitNode{next_transit_node_id_++, pos, this->now()});
+    // Step 6: Emit compact graph growth stats for stepwise validation.
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+                         "[graph] nodes=%zu edges=%zu last_node=%d",
+                         graph_nodes_.size(), graph_edges_.size(), last_transit_graph_node_id_);
 }
 
 void PathPlanner::publishHeartbeat()
@@ -344,6 +374,79 @@ void PathPlanner::publishHeartbeat()
     hb.timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
     hb.timestamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
     pub_heartbeat_->publish(hb);
+}
+
+void PathPlanner::publishGraphMarkers()
+{
+    if (!pub_graph_markers_) {
+        return;
+    }
+
+    visualization_msgs::msg::MarkerArray array;
+    const auto now = this->now();
+
+    // Node markers -------------------------------------------------------------------------------
+    for (const auto &node : graph_nodes_) {
+        if (!node.valid) {
+            continue;
+        }
+
+        visualization_msgs::msg::Marker m;
+        m.header.frame_id = planning_frame_;
+        m.header.stamp = now;
+        m.ns = "graph_nodes";
+        m.id = node.id;
+        m.type = visualization_msgs::msg::Marker::SPHERE;
+        m.action = visualization_msgs::msg::Marker::ADD;
+        m.pose.orientation.w = 1.0;
+        m.pose.position = node.position;
+        m.scale.x = 0.45;
+        m.scale.y = 0.45;
+        m.scale.z = 0.45;
+        m.color.a = 0.95F;
+
+        if (node.is_transit) {
+            m.color.r = 0.10F;
+            m.color.g = 0.60F;
+            m.color.b = 1.00F;
+        } else {
+            m.color.r = 1.00F;
+            m.color.g = 0.50F;
+            m.color.b = 0.10F;
+        }
+
+        array.markers.push_back(m);
+    }
+
+    // Edge marker as line list -------------------------------------------------------------------
+    visualization_msgs::msg::Marker lines;
+    lines.header.frame_id = planning_frame_;
+    lines.header.stamp = now;
+    lines.ns = "graph_edges";
+    lines.id = 1;
+    lines.type = visualization_msgs::msg::Marker::LINE_LIST;
+    lines.action = visualization_msgs::msg::Marker::ADD;
+    lines.scale.x = 0.10;
+    lines.color.r = 0.90F;
+    lines.color.g = 0.90F;
+    lines.color.b = 0.90F;
+    lines.color.a = 0.90F;
+
+    for (const auto &edge : graph_edges_) {
+        if (!edge.valid) {
+            continue;
+        }
+        const auto *from = findNodeById(edge.from_id);
+        const auto *to = findNodeById(edge.to_id);
+        if (!from || !to || !from->valid || !to->valid) {
+            continue;
+        }
+        lines.points.push_back(from->position);
+        lines.points.push_back(to->position);
+    }
+
+    array.markers.push_back(lines);
+    pub_graph_markers_->publish(array);
 }
 
 bool PathPlanner::isTargetMatch(const std::string &target) const
@@ -607,6 +710,168 @@ double PathPlanner::clearance(const geometry_msgs::msg::Point &point) const
     return max_range;
 }
 
+std::optional<int> PathPlanner::findNearestNodeId(const geometry_msgs::msg::Point &point, double radius_m) const
+{
+    if (graph_nodes_.empty()) {
+        return std::nullopt;
+    }
+
+    const double radius = std::max(0.0, radius_m);
+    bool found = false;
+    int best_id = -1;
+    double best_dist = std::numeric_limits<double>::max();
+
+    for (const auto &node : graph_nodes_) {
+        if (!node.valid) {
+            continue;
+        }
+
+        const double d = distance3(node.position, point);
+        if (d > radius) {
+            continue;
+        }
+
+        if (!found || d < best_dist || (std::abs(d - best_dist) <= 1e-9 && node.id < best_id)) {
+            found = true;
+            best_dist = d;
+            best_id = node.id;
+        }
+    }
+
+    if (!found) {
+        return std::nullopt;
+    }
+    return best_id;
+}
+
+std::vector<int> PathPlanner::findNearbyNodeIds(const geometry_msgs::msg::Point &point, double radius_m) const
+{
+    std::vector<int> ids;
+    const double radius = std::max(0.0, radius_m);
+    for (const auto &node : graph_nodes_) {
+        if (!node.valid) {
+            continue;
+        }
+        if (distance3(node.position, point) <= radius) {
+            ids.push_back(node.id);
+        }
+    }
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+int PathPlanner::addOrMergeGraphNode(const geometry_msgs::msg::Point &point, bool is_transit, bool &inserted_new)
+{
+    inserted_new = false;
+    const double merge_radius = std::max(0.05, graph_merge_radius_m_);
+    const auto nearest_id = findNearestNodeId(point, merge_radius);
+
+    if (nearest_id.has_value()) {
+        auto *node = findNodeById(*nearest_id);
+        if (!node) {
+            return -1;
+        }
+
+        // Weighted update keeps duplicate suppression deterministic and stable.
+        const double w_old = static_cast<double>(node->observations);
+        const double w_new = w_old + 1.0;
+        node->position.x = (node->position.x * w_old + point.x) / w_new;
+        node->position.y = (node->position.y * w_old + point.y) / w_new;
+        node->position.z = (node->position.z * w_old + point.z) / w_new;
+        node->observations += 1;
+        node->stamp = this->now();
+        node->is_transit = (node->is_transit || is_transit);
+        node->valid = true;
+        return node->id;
+    }
+
+    GraphNode node;
+    node.id = next_graph_node_id_++;
+    node.position = point;
+    node.stamp = this->now();
+    node.is_transit = is_transit;
+    graph_nodes_.push_back(node);
+    inserted_new = true;
+    return node.id;
+}
+
+void PathPlanner::upsertGraphEdge(int from_id, int to_id)
+{
+    if (from_id <= 0 || to_id <= 0 || from_id == to_id) {
+        return;
+    }
+
+    const auto *from = findNodeById(from_id);
+    const auto *to = findNodeById(to_id);
+    if (!from || !to) {
+        return;
+    }
+
+    // Store edges canonically as undirected pairs for deterministic duplicate handling.
+    int a = from_id;
+    int b = to_id;
+    if (a > b) {
+        std::swap(a, b);
+    }
+
+    const double length = distance3(from->position, to->position);
+    const double cost = length;
+
+    for (auto &edge : graph_edges_) {
+        if (edge.from_id == a && edge.to_id == b) {
+            edge.length_m = length;
+            edge.cost = cost;
+            edge.valid = true;
+            return;
+        }
+    }
+
+    GraphEdge edge;
+    edge.from_id = a;
+    edge.to_id = b;
+    edge.length_m = length;
+    edge.cost = cost;
+    edge.valid = true;
+    graph_edges_.push_back(edge);
+}
+
+bool PathPlanner::hasGraphEdge(int from_id, int to_id) const
+{
+    if (from_id <= 0 || to_id <= 0 || from_id == to_id) {
+        return false;
+    }
+
+    int a = from_id;
+    int b = to_id;
+    if (a > b) {
+        std::swap(a, b);
+    }
+
+    return std::any_of(graph_edges_.begin(), graph_edges_.end(), [&](const GraphEdge &edge) {
+        return edge.valid && edge.from_id == a && edge.to_id == b;
+    });
+}
+
+PathPlanner::GraphNode *PathPlanner::findNodeById(int id)
+{
+    for (auto &node : graph_nodes_) {
+        if (node.id == id) {
+            return &node;
+        }
+    }
+    return nullptr;
+}
+
+const PathPlanner::GraphNode *PathPlanner::findNodeById(int id) const
+{
+    for (const auto &node : graph_nodes_) {
+        if (node.id == id) {
+            return &node;
+        }
+    }
+    return nullptr;
+}
+
 // #################################################################################################
 // String Helpers
 // #################################################################################################
@@ -651,6 +916,21 @@ std::string PathPlanner::toHeartbeatInfo(PlannerMode mode)
         return "EVENT_NEED_HELP";
     }
     return "RUNNING_IDLE";
+}
+
+std::string PathPlanner::toString(GraphNodeStatus status)
+{
+    switch (status) {
+    case GraphNodeStatus::UNVISITED:
+        return "UNVISITED";
+    case GraphNodeStatus::VISITED:
+        return "VISITED";
+    case GraphNodeStatus::FRONTIER:
+        return "FRONTIER";
+    case GraphNodeStatus::DEAD_END:
+        return "DEAD_END";
+    }
+    return "UNKNOWN";
 }
 
 int main(int argc, char **argv)

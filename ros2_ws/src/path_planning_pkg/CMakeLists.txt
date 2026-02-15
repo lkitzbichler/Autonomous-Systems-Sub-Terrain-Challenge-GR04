@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(octomap REQUIRED)
 find_package(octomap_msgs REQUIRED)
 find_package(mav_planning_msgs REQUIRED)
@@ -28,6 +29,7 @@ ament_target_dependencies(pathplanner_node
   rclcpp
   std_msgs
   nav_msgs
+  visualization_msgs
   octomap_msgs
   mav_planning_msgs
   statemachine_pkg
@@ -58,6 +60,7 @@ ament_export_dependencies(
   rclcpp
   std_msgs
   nav_msgs
+  visualization_msgs
   octomap_msgs
   mav_planning_msgs
   statemachine_pkg
