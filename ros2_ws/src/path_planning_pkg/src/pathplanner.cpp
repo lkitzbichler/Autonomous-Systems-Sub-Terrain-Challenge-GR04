@@ -9,6 +9,8 @@
 #include <octomap/OcTree.h>
 #include <octomap/octomap.h>
 #include <octomap_msgs/conversions.h>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <mav_planning_msgs/msg/polynomial_segment4_d.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
 namespace {
@@ -43,6 +45,8 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
         declare_parameter<std::string>("topics.graph_markers_topic", "path_planner/graph_markers");
     topic_candidate_markers_ =
         declare_parameter<std::string>("topics.candidate_markers_topic", "path_planner/candidate_markers");
+    topic_current_plan_ =
+        declare_parameter<std::string>("topics.current_plan_topic", "path_planner/current_plan");
 
     // Timing
     loop_period_sec_ = declare_parameter<double>("time.loop_period_sec", 0.2);
@@ -50,6 +54,7 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
     input_timeout_sec_ = declare_parameter<double>("time.input_timeout_sec", 1.0);
     map_timeout_sec_ = declare_parameter<double>("time.map_timeout_sec", 0.0);
     command_stale_sec_ = declare_parameter<double>("time.command_stale_sec", 5.0);
+    replan_period_sec_ = declare_parameter<double>("time.replan_period_sec", 0.5);
     heartbeat_on_mode_change_ = declare_parameter<bool>("time.heartbeat_on_mode_change", true);
 
     // Command handling
@@ -81,6 +86,20 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
     branch_min_free_candidates_ = declare_parameter<int>("explore.branch_min_free_candidates", 2);
     branch_count_unknown_ = declare_parameter<bool>("explore.branch_count_unknown", true);
     prefer_unknown_over_free_ = declare_parameter<bool>("explore.prefer_unknown_over_free", true);
+    frontier_node_spacing_m_ = declare_parameter<double>("explore.frontier_node_spacing_m", 6.0);
+    max_frontier_nodes_per_cycle_ = declare_parameter<int>("explore.max_frontier_nodes_per_cycle", 3);
+    create_side_frontier_nodes_ = declare_parameter<bool>("explore.create_side_frontier_nodes", true);
+    event_cooldown_sec_ = declare_parameter<double>("explore.event_cooldown_sec", 2.0);
+
+    // Trajectory output
+    trajectory_publish_enabled_ =
+        declare_parameter<bool>("trajectory.publish_enabled", true);
+    trajectory_nominal_speed_mps_ =
+        declare_parameter<double>("trajectory.nominal_speed_mps", 2.5);
+    trajectory_min_segment_time_sec_ =
+        declare_parameter<double>("trajectory.min_segment_time_sec", 0.8);
+    trajectory_goal_replan_dist_m_ =
+        declare_parameter<double>("trajectory.goal_replan_dist_m", 1.0);
 
     // Publishers ###################################################################################
     pub_heartbeat_ = create_publisher<statemachine_pkg::msg::Answer>(topic_heartbeat_, 10);
@@ -89,6 +108,7 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
     pub_graph_markers_ = create_publisher<visualization_msgs::msg::MarkerArray>(topic_graph_markers_, 10);
     pub_candidate_markers_ =
         create_publisher<visualization_msgs::msg::MarkerArray>(topic_candidate_markers_, 10);
+    pub_current_plan_ = create_publisher<nav_msgs::msg::Path>(topic_current_plan_, 10);
 
     // Subscribers ##################################################################################
     sub_cmd_ = create_subscription<statemachine_pkg::msg::Command>(
@@ -295,10 +315,14 @@ void PathPlanner::onTimer()
 
     // Step 3: Update and publish branch candidates for RViz inspection.
     updateBranchCandidates();
+    updateExploreGraphFromCandidates();
     publishCandidateMarkers();
 
     // Step 4: Publish graph visualization for runtime inspection.
     publishGraphMarkers();
+
+    // Step 5: Build local path and publish trajectory output if replanning is due.
+    updateLocalPlanAndTrajectory();
 }
 
 // #################################################################################################
@@ -313,6 +337,16 @@ void PathPlanner::changeMode(PlannerMode new_mode, const std::string &reason)
 
     mode_ = new_mode;
     RCLCPP_INFO(this->get_logger(), "[mode] -> %s (%s)", toString(mode_).c_str(), reason.c_str());
+
+    const bool explore_like = (mode_ == PlannerMode::EXPLORE ||
+                               mode_ == PlannerMode::BACKTRACK ||
+                               mode_ == PlannerMode::RETURN_HOME);
+    if (!explore_like) {
+        has_frontier_seed_position_ = false;
+        last_branch_detected_ = false;
+        has_last_plan_goal_ = false;
+        last_plan_publish_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    }
 
     // Step 2: Optionally publish an immediate heartbeat on mode change.
     if (heartbeat_on_mode_change_) {
@@ -388,7 +422,12 @@ void PathPlanner::publishHeartbeat()
     statemachine_pkg::msg::Answer hb;
     hb.node_name = this->get_name();
     hb.state = static_cast<uint8_t>(AnswerStates::RUNNING);
-    hb.info = heartbeatInfo();
+    if (!pending_event_info_.empty()) {
+        hb.info = pending_event_info_;
+        pending_event_info_.clear();
+    } else {
+        hb.info = heartbeatInfo();
+    }
 
     const auto now = this->now();
     hb.timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
@@ -430,9 +469,28 @@ void PathPlanner::publishGraphMarkers()
             m.color.g = 0.60F;
             m.color.b = 1.00F;
         } else {
-            m.color.r = 1.00F;
-            m.color.g = 0.50F;
-            m.color.b = 0.10F;
+            switch (node.status) {
+            case GraphNodeStatus::UNVISITED:
+                m.color.r = 1.00F;
+                m.color.g = 0.50F;
+                m.color.b = 0.10F;
+                break;
+            case GraphNodeStatus::VISITED:
+                m.color.r = 0.10F;
+                m.color.g = 0.85F;
+                m.color.b = 0.20F;
+                break;
+            case GraphNodeStatus::FRONTIER:
+                m.color.r = 0.95F;
+                m.color.g = 0.80F;
+                m.color.b = 0.10F;
+                break;
+            case GraphNodeStatus::DEAD_END:
+                m.color.r = 0.95F;
+                m.color.g = 0.20F;
+                m.color.b = 0.20F;
+                break;
+            }
         }
 
         array.markers.push_back(m);
@@ -578,6 +636,404 @@ void PathPlanner::updateBranchCandidates()
                              "[branch] detected free=%zu unknown=%zu",
                              free_candidate_count_, unknown_candidate_count_);
     }
+}
+
+void PathPlanner::updateExploreGraphFromCandidates()
+{
+    // Graph updates from local fan-candidates are only used in exploration-like modes.
+    const bool active_mode = (mode_ == PlannerMode::EXPLORE ||
+                              mode_ == PlannerMode::BACKTRACK ||
+                              mode_ == PlannerMode::RETURN_HOME);
+    if (!active_mode || !hasValidOdom() || !hasValidMap() || latest_candidates_.empty()) {
+        last_branch_detected_ = branch_detected_;
+        return;
+    }
+
+    // Raise branch event once per rising edge (with cooldown for spam protection).
+    if (branch_detected_ && !last_branch_detected_) {
+        queueEventInfo("EVENT_BRANCH_DETECTED", last_branch_event_time_);
+    }
+    last_branch_detected_ = branch_detected_;
+
+    const auto now = this->now();
+    const auto &pose = latest_odom_.pose.pose;
+    const auto &origin = pose.position;
+    constexpr double kDegToRad = 0.017453292519943295;
+    const double yaw = yawFromQuaternion(
+        pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w);
+
+    // Keep graph anchored at the current vehicle position.
+    bool inserted_anchor = false;
+    const int anchor_id = addOrMergeGraphNode(origin, false, inserted_anchor);
+    if (anchor_id <= 0) {
+        return;
+    }
+    auto *anchor = findNodeById(anchor_id);
+    if (!anchor) {
+        return;
+    }
+    anchor->status = GraphNodeStatus::VISITED;
+    anchor->yaw = yaw;
+    anchor->stamp = now;
+    anchor->valid = true;
+
+    // Apply placement hysteresis to avoid node flood while hovering.
+    const double min_seed_spacing = std::max(0.2, frontier_node_spacing_m_);
+    if (has_frontier_seed_position_ &&
+        distance3(last_frontier_seed_position_, origin) < min_seed_spacing) {
+        return;
+    }
+
+    // Collect exploratory candidates (FREE + UNKNOWN) and rank deterministically.
+    std::vector<std::size_t> exploratory_indices;
+    exploratory_indices.reserve(latest_candidates_.size());
+    for (std::size_t i = 0; i < latest_candidates_.size(); ++i) {
+        const auto status = latest_candidates_[i].status;
+        if (status == CandidateStatus::FREE || status == CandidateStatus::UNKNOWN) {
+            exploratory_indices.push_back(i);
+        }
+    }
+    if (exploratory_indices.empty()) {
+        return;
+    }
+
+    const auto candidatePriority = [this](const CandidatePoint &c) {
+        if (c.status == CandidateStatus::UNKNOWN) {
+            return prefer_unknown_over_free_ ? 3 : 2;
+        }
+        if (c.status == CandidateStatus::FREE) {
+            return prefer_unknown_over_free_ ? 2 : 3;
+        }
+        return 1;
+    };
+
+    auto ranked = exploratory_indices;
+    std::stable_sort(ranked.begin(), ranked.end(), [&](std::size_t lhs, std::size_t rhs) {
+        const auto &a = latest_candidates_[lhs];
+        const auto &b = latest_candidates_[rhs];
+        const int pa = candidatePriority(a);
+        const int pb = candidatePriority(b);
+        if (pa != pb) {
+            return pa > pb;
+        }
+        const double ca = std::abs(a.rel_yaw_deg) + 0.7 * std::abs(a.rel_pitch_deg);
+        const double cb = std::abs(b.rel_yaw_deg) + 0.7 * std::abs(b.rel_pitch_deg);
+        if (std::abs(ca - cb) > 1e-9) {
+            return ca < cb;
+        }
+        return lhs < rhs;
+    });
+
+    const int max_nodes = std::max(1, max_frontier_nodes_per_cycle_);
+    const int limit = create_side_frontier_nodes_ ? max_nodes : 1;
+    std::vector<std::size_t> chosen;
+    chosen.reserve(static_cast<std::size_t>(limit));
+    auto pushUnique = [&chosen](std::size_t idx) {
+        if (std::find(chosen.begin(), chosen.end(), idx) == chosen.end()) {
+            chosen.push_back(idx);
+        }
+    };
+
+    if (selected_candidate_index_.has_value() &&
+        *selected_candidate_index_ < latest_candidates_.size()) {
+        const auto selected_status = latest_candidates_[*selected_candidate_index_].status;
+        if (selected_status == CandidateStatus::FREE || selected_status == CandidateStatus::UNKNOWN) {
+            pushUnique(*selected_candidate_index_);
+        }
+    }
+    for (const auto idx : ranked) {
+        if (static_cast<int>(chosen.size()) >= limit) {
+            break;
+        }
+        pushUnique(idx);
+    }
+
+    bool loop_closed = false;
+    for (const auto idx : chosen) {
+        const auto &candidate = latest_candidates_[idx];
+
+        bool inserted_new = false;
+        const int node_id = addOrMergeGraphNode(candidate.point, false, inserted_new);
+        if (node_id <= 0) {
+            continue;
+        }
+
+        auto *node = findNodeById(node_id);
+        if (node) {
+            const bool selected = selected_candidate_index_.has_value() &&
+                                  (*selected_candidate_index_ == idx);
+            node->status = selected ? GraphNodeStatus::UNVISITED : GraphNodeStatus::FRONTIER;
+            node->frontier_score = (candidate.status == CandidateStatus::UNKNOWN) ? 2.0 : 1.0;
+            node->yaw = yaw + candidate.rel_yaw_deg * kDegToRad;
+            node->stamp = now;
+            node->valid = true;
+        }
+
+        if (node_id == anchor_id) {
+            continue;
+        }
+
+        const bool had_edge = hasGraphEdge(anchor_id, node_id);
+        upsertGraphEdge(anchor_id, node_id);
+        if (!inserted_new && !had_edge) {
+            loop_closed = true;
+        }
+    }
+
+    has_frontier_seed_position_ = true;
+    last_frontier_seed_position_ = origin;
+
+    if (loop_closed) {
+        queueEventInfo("EVENT_LOOP_CLOSED", last_loop_event_time_);
+    }
+
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+                         "[frontier] anchor=%d add_candidates=%zu nodes=%zu edges=%zu",
+                         anchor_id, chosen.size(), graph_nodes_.size(), graph_edges_.size());
+}
+
+void PathPlanner::updateLocalPlanAndTrajectory()
+{
+    // Local planning is active only when planner outputs are allowed.
+    if (!canPublishPlannerOutput()) {
+        return;
+    }
+
+    const auto goal_opt = selectGoalPoint();
+    if (!goal_opt.has_value()) {
+        return;
+    }
+
+    if (!shouldReplanForGoal(*goal_opt)) {
+        return;
+    }
+
+    std::vector<geometry_msgs::msg::Point> path_points;
+    if (!computeLocalWaypointPath(*goal_opt, path_points)) {
+        queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+                             "[plan] local path generation failed");
+        return;
+    }
+
+    publishCurrentPlan(path_points);
+    if (trajectory_publish_enabled_ && !publishTrajectoryFromPath(path_points)) {
+        queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+                             "[plan] trajectory publication failed");
+        return;
+    }
+
+    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+                         "[plan] published waypoints=%zu trajectories=%zu",
+                         path_points.size(), published_plan_count_);
+}
+
+std::optional<geometry_msgs::msg::Point> PathPlanner::selectGoalPoint() const
+{
+    // Priority 1: use selected exploratory candidate from current local fan.
+    if (selected_candidate_index_.has_value() && *selected_candidate_index_ < latest_candidates_.size()) {
+        const auto &selected = latest_candidates_[*selected_candidate_index_];
+        if (selected.status == CandidateStatus::FREE || selected.status == CandidateStatus::UNKNOWN) {
+            return selected.point;
+        }
+    }
+
+    // Priority 2: nearest graph frontier/unvisited node.
+    if (!hasValidOdom()) {
+        return std::nullopt;
+    }
+
+    const auto &origin = latest_odom_.pose.pose.position;
+    const double max_query_dist = std::max(1.0, graph_ahead_query_dist_m_ * 2.0);
+    bool found = false;
+    geometry_msgs::msg::Point best{};
+    int best_id = -1;
+    double best_dist = std::numeric_limits<double>::max();
+
+    for (const auto &node : graph_nodes_) {
+        if (!node.valid || node.is_transit) {
+            continue;
+        }
+        if (!(node.status == GraphNodeStatus::FRONTIER || node.status == GraphNodeStatus::UNVISITED)) {
+            continue;
+        }
+
+        const double d = distance3(origin, node.position);
+        if (d > max_query_dist) {
+            continue;
+        }
+        if (!found || d < best_dist || (std::abs(d - best_dist) <= 1e-9 && node.id < best_id)) {
+            found = true;
+            best = node.position;
+            best_id = node.id;
+            best_dist = d;
+        }
+    }
+
+    if (!found) {
+        return std::nullopt;
+    }
+    return best;
+}
+
+bool PathPlanner::shouldReplanForGoal(const geometry_msgs::msg::Point &goal) const
+{
+    if (last_plan_publish_time_.nanoseconds() == 0) {
+        return true;
+    }
+
+    const auto now = this->now();
+    if (replan_period_sec_ > 0.0 &&
+        (now - last_plan_publish_time_).seconds() >= replan_period_sec_) {
+        return true;
+    }
+
+    if (!has_last_plan_goal_) {
+        return true;
+    }
+
+    const double goal_eps = std::max(0.05, trajectory_goal_replan_dist_m_);
+    return distance3(last_plan_goal_, goal) >= goal_eps;
+}
+
+bool PathPlanner::computeLocalWaypointPath(
+    const geometry_msgs::msg::Point &goal,
+    std::vector<geometry_msgs::msg::Point> &path) const
+{
+    path.clear();
+    if (!hasValidOdom()) {
+        return false;
+    }
+
+    const auto &origin = latest_odom_.pose.pose.position;
+    path.push_back(origin);
+
+    if (distance3(origin, goal) <= 0.05) {
+        return false;
+    }
+
+    auto isExploratory = [](CandidateStatus status) {
+        return (status == CandidateStatus::FREE || status == CandidateStatus::UNKNOWN);
+    };
+
+    auto hasLineOfSight = [this](const geometry_msgs::msg::Point &a, const geometry_msgs::msg::Point &b) {
+        geometry_msgs::msg::Point hit;
+        return !raycast(a, b, hit, false) && !isOccupied(b);
+    };
+
+    if (hasLineOfSight(origin, goal)) {
+        path.push_back(goal);
+        return true;
+    }
+
+    // One-hop bridge over candidate rays for simple local obstacle bypass.
+    bool bridge_found = false;
+    geometry_msgs::msg::Point best_bridge{};
+    double best_cost = std::numeric_limits<double>::max();
+    for (const auto &candidate : latest_candidates_) {
+        if (!isExploratory(candidate.status)) {
+            continue;
+        }
+        const auto &mid = candidate.point;
+        if (!hasLineOfSight(origin, mid) || !hasLineOfSight(mid, goal)) {
+            continue;
+        }
+
+        const double cost =
+            distance3(origin, mid) + distance3(mid, goal) +
+            0.1 * std::abs(candidate.rel_yaw_deg) + 0.05 * std::abs(candidate.rel_pitch_deg);
+        if (!bridge_found || cost < best_cost) {
+            bridge_found = true;
+            best_bridge = mid;
+            best_cost = cost;
+        }
+    }
+
+    if (!bridge_found) {
+        return false;
+    }
+
+    path.push_back(best_bridge);
+    path.push_back(goal);
+    return true;
+}
+
+void PathPlanner::publishCurrentPlan(const std::vector<geometry_msgs::msg::Point> &path)
+{
+    if (!pub_current_plan_ || path.empty()) {
+        return;
+    }
+
+    nav_msgs::msg::Path msg;
+    const auto now = this->now();
+    msg.header.frame_id = planning_frame_;
+    msg.header.stamp = now;
+    msg.poses.reserve(path.size());
+    for (const auto &p : path) {
+        geometry_msgs::msg::PoseStamped pose;
+        pose.header = msg.header;
+        pose.pose.position = p;
+        pose.pose.orientation.w = 1.0;
+        msg.poses.push_back(pose);
+    }
+    pub_current_plan_->publish(msg);
+
+    last_plan_publish_time_ = now;
+    last_plan_goal_ = path.back();
+    has_last_plan_goal_ = true;
+}
+
+bool PathPlanner::publishTrajectoryFromPath(const std::vector<geometry_msgs::msg::Point> &path)
+{
+    if (!pub_trajectory_ || path.size() < 2) {
+        return false;
+    }
+
+    mav_planning_msgs::msg::PolynomialTrajectory4D traj;
+    const auto now = this->now();
+    traj.header.frame_id = planning_frame_;
+    traj.header.stamp = now;
+
+    const double nominal_speed = std::max(0.1, trajectory_nominal_speed_mps_);
+    const double min_dt = std::max(0.1, trajectory_min_segment_time_sec_);
+
+    for (std::size_t i = 0; i + 1 < path.size(); ++i) {
+        const auto &a = path[i];
+        const auto &b = path[i + 1];
+        const double d = distance3(a, b);
+        if (d <= 0.05) {
+            continue;
+        }
+
+        const double dt = std::max(min_dt, d / nominal_speed);
+        mav_planning_msgs::msg::PolynomialSegment4D seg;
+        seg.header.frame_id = planning_frame_;
+        seg.header.stamp = now;
+        seg.num_coeffs = 2;
+
+        seg.segment_time.sec = static_cast<int32_t>(dt);
+        seg.segment_time.nanosec = static_cast<uint32_t>((dt - static_cast<double>(seg.segment_time.sec)) * 1e9);
+
+        const double vx = (b.x - a.x) / dt;
+        const double vy = (b.y - a.y) / dt;
+        const double vz = (b.z - a.z) / dt;
+        seg.x = {a.x, vx};
+        seg.y = {a.y, vy};
+        seg.z = {a.z, vz};
+
+        const double yaw = std::atan2(b.y - a.y, b.x - a.x);
+        seg.yaw = {yaw, 0.0};
+        traj.segments.push_back(seg);
+    }
+
+    if (traj.segments.empty()) {
+        return false;
+    }
+
+    pub_trajectory_->publish(traj);
+    ++published_plan_count_;
+    return true;
 }
 
 void PathPlanner::publishCandidateMarkers()
@@ -1103,6 +1559,26 @@ bool PathPlanner::hasGraphEdge(int from_id, int to_id) const
     return std::any_of(graph_edges_.begin(), graph_edges_.end(), [&](const GraphEdge &edge) {
         return edge.valid && edge.from_id == a && edge.to_id == b;
     });
+}
+
+void PathPlanner::queueEventInfo(const std::string &event_info, rclcpp::Time &last_event_time)
+{
+    if (event_info.empty()) {
+        return;
+    }
+
+    const auto now = this->now();
+    if (event_cooldown_sec_ > 0.0 && last_event_time.nanoseconds() != 0) {
+        const double since_last_sec = (now - last_event_time).seconds();
+        if (since_last_sec < event_cooldown_sec_) {
+            return;
+        }
+    }
+
+    if (pending_event_info_.empty()) {
+        pending_event_info_ = event_info;
+    }
+    last_event_time = now;
 }
 
 PathPlanner::GraphNode *PathPlanner::findNodeById(int id)

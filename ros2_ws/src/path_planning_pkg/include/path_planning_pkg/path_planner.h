@@ -7,6 +7,7 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <mav_planning_msgs/msg/polynomial_trajectory4_d.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <nav_msgs/msg/path.hpp>
 #include <octomap_msgs/msg/octomap.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -119,8 +120,19 @@ private: // STATE
     std::vector<CandidatePoint> latest_candidates_;
     std::optional<std::size_t> selected_candidate_index_;
     bool branch_detected_{false};
+    bool last_branch_detected_{false};
     std::size_t free_candidate_count_{0};
     std::size_t unknown_candidate_count_{0};
+    bool has_frontier_seed_position_{false};
+    geometry_msgs::msg::Point last_frontier_seed_position_{};
+    rclcpp::Time last_branch_event_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_loop_event_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_stuck_event_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_plan_publish_time_{0, 0, RCL_ROS_TIME};
+    std::string pending_event_info_;
+    bool has_last_plan_goal_{false};
+    geometry_msgs::msg::Point last_plan_goal_{};
+    std::size_t published_plan_count_{0};
 
     std::string odom_frame_id_;
     std::string map_frame_id_;
@@ -130,6 +142,7 @@ private: // PUBS / SUBS / TIMER
     rclcpp::Publisher<mav_planning_msgs::msg::PolynomialTrajectory4D>::SharedPtr pub_trajectory_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_graph_markers_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_candidate_markers_;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pub_current_plan_;
 
     rclcpp::Subscription<statemachine_pkg::msg::Command>::SharedPtr sub_cmd_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_sm_state_;
@@ -148,6 +161,7 @@ private: // PARAMETERS
     std::string topic_trajectory_;
     std::string topic_graph_markers_;
     std::string topic_candidate_markers_;
+    std::string topic_current_plan_;
 
     // Timing
     double loop_period_sec_{0.2};
@@ -155,6 +169,7 @@ private: // PARAMETERS
     double input_timeout_sec_{1.0};
     double map_timeout_sec_{0.0};
     double command_stale_sec_{5.0};
+    double replan_period_sec_{0.5};
 
     // Command handling
     bool accept_empty_target_{false};
@@ -183,6 +198,16 @@ private: // PARAMETERS
     int branch_min_free_candidates_{2};
     bool branch_count_unknown_{true};
     bool prefer_unknown_over_free_{true};
+    double frontier_node_spacing_m_{6.0};
+    int max_frontier_nodes_per_cycle_{3};
+    bool create_side_frontier_nodes_{true};
+    double event_cooldown_sec_{2.0};
+
+    // Trajectory output
+    bool trajectory_publish_enabled_{true};
+    double trajectory_nominal_speed_mps_{2.5};
+    double trajectory_min_segment_time_sec_{0.8};
+    double trajectory_goal_replan_dist_m_{1.0};
 
 public: // LIFECYCLE
     PathPlanner();
@@ -202,6 +227,8 @@ private: // HELPERS
     void publishHeartbeat();
     void publishGraphMarkers();
     void updateBranchCandidates();
+    void updateExploreGraphFromCandidates();
+    void updateLocalPlanAndTrajectory();
     void publishCandidateMarkers();
     bool isTargetMatch(const std::string &target) const;
     bool isStaleCommand(const statemachine_pkg::msg::Command &msg) const;
@@ -224,6 +251,13 @@ private: // HELPERS
     int addOrMergeGraphNode(const geometry_msgs::msg::Point &point, bool is_transit, bool &inserted_new);
     void upsertGraphEdge(int from_id, int to_id);
     bool hasGraphEdge(int from_id, int to_id) const;
+    void queueEventInfo(const std::string &event_info, rclcpp::Time &last_event_time);
+    std::optional<geometry_msgs::msg::Point> selectGoalPoint() const;
+    bool shouldReplanForGoal(const geometry_msgs::msg::Point &goal) const;
+    bool computeLocalWaypointPath(const geometry_msgs::msg::Point &goal,
+                                  std::vector<geometry_msgs::msg::Point> &path) const;
+    void publishCurrentPlan(const std::vector<geometry_msgs::msg::Point> &path);
+    bool publishTrajectoryFromPath(const std::vector<geometry_msgs::msg::Point> &path);
     GraphNode *findNodeById(int id);
     const GraphNode *findNodeById(int id) const;
     static double yawFromQuaternion(double x, double y, double z, double w);

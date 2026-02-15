@@ -944,7 +944,7 @@ bool StateMachine::prepareLandingCheckpoint(geometry_msgs::msg::Point &target_ou
 
 /**
  * @brief Log a lantern detection to CSV with id, date, user, count, and position.
- * @param pose Lantern pose to log (frame and timestamp are used).
+ * @param pose Lantern pose to log (position is used, timestamp comes from system clock).
  * @param id Lantern track id.
  * @param count Number of samples for this track.
  */
@@ -967,14 +967,8 @@ void StateMachine::logLanternPose(const geometry_msgs::msg::PoseStamped &pose, i
         }
     }
 
-    // Step 3: Resolve timestamp and format date
-    rclcpp::Time stamp = pose.header.stamp;
-    if (stamp.nanoseconds() <= 0) {
-        stamp = this->now();
-    }
-
-    const auto ns = std::chrono::nanoseconds(stamp.nanoseconds());
-    const auto tp = std::chrono::time_point<std::chrono::system_clock>(ns);
+    // Step 3: Resolve timestamp from wall/system clock (independent of ROS time)
+    const auto tp = std::chrono::system_clock::now();
     const auto tt = std::chrono::system_clock::to_time_t(tp);
     std::tm tm{};
     gmtime_r(&tt, &tm);
@@ -1050,8 +1044,11 @@ void StateMachine::logEvent(const std::string &message)
         return;
     }
 
+    const auto now_sys = std::chrono::system_clock::now();
+    const double now_sec = std::chrono::duration<double>(now_sys.time_since_epoch()).count();
+
     std::ostringstream line; // Build log line with required prefix
-    line << "[" << std::fixed << std::setprecision(3) << this->now().seconds() << "]"
+    line << "[" << std::fixed << std::setprecision(3) << now_sec << "]"
          << "[StateMachine] "
          << message;
 

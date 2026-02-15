@@ -22,6 +22,7 @@ def generate_launch_description():
     depth_image_topic = LaunchConfiguration("depth_image_topic")
     depth_info_topic = LaunchConfiguration("depth_info_topic")
     controller_config_file = LaunchConfiguration("controller_config_file")
+    use_sim_time = LaunchConfiguration("use_sim_time")
 
     # Declare args
     controller_config_source = PathJoinSubstitution(
@@ -37,6 +38,7 @@ def generate_launch_description():
         DeclareLaunchArgument("left_info_topic", default_value="/realsense/rgb/left_image_info"),
         DeclareLaunchArgument("depth_image_topic", default_value="/realsense/depth/image"),
         DeclareLaunchArgument("depth_info_topic", default_value="/realsense/depth/camera_info"),
+        DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument(
             "controller_config_file",
             default_value=controller_config_source,
@@ -67,13 +69,17 @@ def generate_launch_description():
         launch_arguments={
             "depth_image_topic": depth_image_topic,
             "depth_info_topic": depth_info_topic,
+            "use_sim_time": use_sim_time,
         }.items(),
     )
 
     waypoint_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([FindPackageShare("basic_waypoint_pkg"), "launch", "waypoint_mission.launch.py"])
-        )
+        ),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+        }.items(),
     )
     mapping_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -83,14 +89,20 @@ def generate_launch_description():
     path_planning_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([FindPackageShare("path_planning_pkg"), "launch", "pathplanning.launch.py"])
-        )
+        ),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+        }.items(),
     )
 
 
     statemachine_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([FindPackageShare("statemachine_pkg"), "launch", "statemachine.launch.py"])
-        )
+        ),
+        launch_arguments={
+            "use_sim_time": use_sim_time,
+        }.items(),
     )
 
     # Nodes
@@ -113,6 +125,7 @@ def generate_launch_description():
             {"pos_white_sig": 0.005},
             # jump_seconds
             {"jump_seconds": 20.0},
+            {"use_sim_time": use_sim_time},
         ],
         condition=IfCondition(corrupt_state_estimate),
     )
@@ -127,6 +140,7 @@ def generate_launch_description():
             {"drift_rw_factor": 0.0},
             {"pos_white_sig": 0.0},
             {"jump_seconds": -1.0},
+            {"use_sim_time": use_sim_time},
         ],
         condition=UnlessCondition(corrupt_state_estimate),
     )
@@ -150,7 +164,7 @@ def generate_launch_description():
         executable="controller_node",
         name="controller_node",
         output="screen",
-        parameters=[controller_config_file],
+        parameters=[controller_config_file, {"use_sim_time": use_sim_time}],
     )
 
     # Static TF publishers

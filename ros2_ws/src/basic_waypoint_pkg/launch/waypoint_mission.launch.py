@@ -14,6 +14,12 @@ def generate_launch_description():
         description="Name of the MAV"
     )
     mav_name = LaunchConfiguration("mav_name")
+    use_sim_time_arg = DeclareLaunchArgument(
+        "use_sim_time",
+        default_value="false",
+        description="Use /clock simulation time",
+    )
+    use_sim_time = LaunchConfiguration("use_sim_time")
 
     # Path to trajectory_config.yaml
     trajectory_config = PathJoinSubstitution([
@@ -28,7 +34,7 @@ def generate_launch_description():
         executable="basic_waypoint_node",   # ROS1: type="basic_waypoint_pkg"
         name="planner",
         output="screen",
-        parameters=[trajectory_config]
+        parameters=[trajectory_config, {"use_sim_time": use_sim_time}]
     )
 
     # Trajectory sampler node
@@ -37,6 +43,7 @@ def generate_launch_description():
         executable="trajectory_sampler_node",
         name="sampler",
         output="screen",
+        parameters=[{"use_sim_time": use_sim_time}],
         remappings=[
             ("path_segments_4D", "trajectory"),
         ],
@@ -44,6 +51,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         mav_name_arg,
+        use_sim_time_arg,
         planner_node,
         sampler_node,
     ])

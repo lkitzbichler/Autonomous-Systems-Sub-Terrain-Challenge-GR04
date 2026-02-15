@@ -10,6 +10,7 @@ path_planner:
       trajectory_topic: "trajectory"
       graph_markers_topic: "path_planner/graph_markers"
       candidate_markers_topic: "path_planner/candidate_markers"
+      current_plan_topic: "path_planner/current_plan"
     time:
       loop_period_sec: 0.2
       heartbeat_period_sec: 1.0
@@ -17,6 +18,7 @@ path_planner:
       map_timeout_sec: 0.0
       command_stale_sec: 5.0
       heartbeat_on_mode_change: true
+      replan_period_sec: 0.5
     commands:
       accept_empty_target: false
       accept_switch_to_explore_cmd: true
@@ -40,3 +42,12 @@ path_planner:
       branch_min_free_candidates: 2
       branch_count_unknown: true
       prefer_unknown_over_free: true
+      frontier_node_spacing_m: 6.0
+      max_frontier_nodes_per_cycle: 3
+      create_side_frontier_nodes: true
+      event_cooldown_sec: 2.0
+    trajectory:
+      publish_enabled: true
+      nominal_speed_mps: 2.5
+      min_segment_time_sec: 0.8
+      goal_replan_dist_m: 1.0
