@@ -2,6 +2,8 @@
 
 #include <array>
 #include <algorithm>
+#include <queue>
+#include <map>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -75,6 +77,9 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
     transit_node_spacing_m_ = declare_parameter<double>("graph.transit_node_spacing_m", 10.0);
     graph_merge_radius_m_ = declare_parameter<double>("graph.merge_radius_m", 3.0);
     graph_ahead_query_dist_m_ = declare_parameter<double>("graph.ahead_query_dist_m", 12.0);
+    graph_loop_connect_radius_m_ = declare_parameter<double>("graph.loop_connect_radius_m", 12.0);
+    graph_loop_connect_max_links_ = declare_parameter<int>("graph.loop_connect_max_links", 3);
+    route_node_reached_dist_m_ = declare_parameter<double>("graph.route_node_reached_dist_m", 1.2);
 
     // Explore candidate generation
     candidate_distance_m_ = declare_parameter<double>("explore.candidate_distance_m", 8.0);
@@ -83,12 +88,27 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
     candidate_vertical_half_fov_deg_ =
         declare_parameter<double>("explore.candidate_vertical_half_fov_deg", 30.0);
     candidate_vertical_bin_count_ = declare_parameter<int>("explore.candidate_vertical_bin_count", 3);
-    branch_min_free_candidates_ = declare_parameter<int>("explore.branch_min_free_candidates", 2);
-    branch_count_unknown_ = declare_parameter<bool>("explore.branch_count_unknown", true);
+    branch_probe_distance_m_ = declare_parameter<double>("explore.branch_probe_distance_m", 60.0);
+    side_opening_min_abs_yaw_deg_ =
+        declare_parameter<double>("explore.side_opening_min_abs_yaw_deg", 80.0);
+    side_opening_min_depth_m_ = declare_parameter<double>("explore.side_opening_min_depth_m", 60.0);
+    side_opening_bundle_half_yaw_deg_ =
+        declare_parameter<double>("explore.side_opening_bundle_half_yaw_deg", 10.0);
+    side_opening_bundle_half_pitch_deg_ =
+        declare_parameter<double>("explore.side_opening_bundle_half_pitch_deg", 12.0);
+    side_opening_bundle_yaw_bins_ = declare_parameter<int>("explore.side_opening_bundle_yaw_bins", 5);
+    side_opening_bundle_pitch_bins_ = declare_parameter<int>("explore.side_opening_bundle_pitch_bins", 3);
+    side_opening_required_fraction_ =
+        declare_parameter<double>("explore.side_opening_required_fraction", 0.7);
+    side_opening_confirm_cycles_ = declare_parameter<int>("explore.side_opening_confirm_cycles", 3);
+    side_opening_max_candidates_ = declare_parameter<int>("explore.side_opening_max_candidates", 1);
+    side_opening_reuse_radius_m_ = declare_parameter<double>("explore.side_opening_reuse_radius_m", 15.0);
     prefer_unknown_over_free_ = declare_parameter<bool>("explore.prefer_unknown_over_free", true);
     frontier_node_spacing_m_ = declare_parameter<double>("explore.frontier_node_spacing_m", 6.0);
     max_frontier_nodes_per_cycle_ = declare_parameter<int>("explore.max_frontier_nodes_per_cycle", 3);
     create_side_frontier_nodes_ = declare_parameter<bool>("explore.create_side_frontier_nodes", true);
+    known_path_reject_radius_m_ = declare_parameter<double>("explore.known_path_reject_radius_m", 4.0);
+    frontier_cleanup_radius_m_ = declare_parameter<double>("explore.frontier_cleanup_radius_m", 10.0);
     event_cooldown_sec_ = declare_parameter<double>("explore.event_cooldown_sec", 2.0);
 
     // Trajectory output
@@ -177,6 +197,10 @@ void PathPlanner::onCommand(const statemachine_pkg::msg::Command::SharedPtr msg)
         }
         break;
     case static_cast<uint8_t>(Commands::RETURN_HOME):
+        if (msg->has_target) {
+            return_home_target_ = msg->target_pos;
+            has_return_home_target_ = true;
+        }
         changeMode(PlannerMode::RETURN_HOME, "command RETURN_HOME");
         break;
     case static_cast<uint8_t>(Commands::HOLD):
@@ -338,14 +362,36 @@ void PathPlanner::changeMode(PlannerMode new_mode, const std::string &reason)
     mode_ = new_mode;
     RCLCPP_INFO(this->get_logger(), "[mode] -> %s (%s)", toString(mode_).c_str(), reason.c_str());
 
-    const bool explore_like = (mode_ == PlannerMode::EXPLORE ||
-                               mode_ == PlannerMode::BACKTRACK ||
-                               mode_ == PlannerMode::RETURN_HOME);
-    if (!explore_like) {
+    // Reset short-horizon planning cache on every mode transition.
+    has_last_plan_goal_ = false;
+    last_plan_publish_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+
+    if (mode_ != PlannerMode::EXPLORE) {
         has_frontier_seed_position_ = false;
         last_branch_detected_ = false;
-        has_last_plan_goal_ = false;
-        last_plan_publish_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+        force_graph_replan_after_loop_ = false;
+    }
+
+    if (mode_ == PlannerMode::EXPLORE) {
+        active_route_node_ids_.clear();
+        active_route_index_ = 0;
+        exploration_done_reported_ = false;
+    }
+
+    if (mode_ == PlannerMode::BACKTRACK) {
+        active_route_node_ids_.clear();
+        active_route_index_ = 0;
+    }
+
+    if (mode_ == PlannerMode::RETURN_HOME) {
+        active_route_node_ids_.clear();
+        active_route_index_ = 0;
+        return_home_done_reported_ = false;
+    }
+
+    if (mode_ == PlannerMode::HOLD || mode_ == PlannerMode::ABORTED || mode_ == PlannerMode::IDLE) {
+        active_route_node_ids_.clear();
+        active_route_index_ = 0;
     }
 
     // Step 2: Optionally publish an immediate heartbeat on mode change.
@@ -410,6 +456,9 @@ void PathPlanner::tryRecordTransitNode()
 
     // Step 5: Advance transit cursor.
     last_transit_graph_node_id_ = node_id;
+    if (home_node_id_ <= 0) {
+        home_node_id_ = node_id;
+    }
 
     // Step 6: Emit compact graph growth stats for stepwise validation.
     RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
@@ -433,6 +482,19 @@ void PathPlanner::publishHeartbeat()
     hb.timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
     hb.timestamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
     pub_heartbeat_->publish(hb);
+}
+
+void PathPlanner::publishDone(const std::string &info_code)
+{
+    statemachine_pkg::msg::Answer msg;
+    msg.node_name = this->get_name();
+    msg.state = static_cast<uint8_t>(AnswerStates::DONE);
+    msg.info = info_code;
+    const auto now = this->now();
+    msg.timestamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
+    msg.timestamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
+    pub_heartbeat_->publish(msg);
+    last_heartbeat_time_ = now;
 }
 
 void PathPlanner::publishGraphMarkers()
@@ -530,6 +592,8 @@ void PathPlanner::publishGraphMarkers()
 void PathPlanner::updateBranchCandidates()
 {
     latest_candidates_.clear();
+    candidate_known_path_flags_.clear();
+    side_opening_targets_.clear();
     selected_candidate_index_.reset();
     branch_detected_ = false;
     free_candidate_count_ = 0;
@@ -553,12 +617,31 @@ void PathPlanner::updateBranchCandidates()
     const double half_fov_yaw_deg = std::max(0.0, candidate_half_fov_deg_);
     const double half_fov_pitch_deg = std::max(0.0, candidate_vertical_half_fov_deg_);
     const double probe_dist_m = std::max(0.5, candidate_distance_m_);
+    const double branch_probe_dist_m = std::max(probe_dist_m, branch_probe_distance_m_);
     constexpr double kDegToRad = 0.017453292519943295;
 
     const auto &pose = latest_odom_.pose.pose;
     const double yaw = yawFromQuaternion(
         pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w);
     const geometry_msgs::msg::Point origin = pose.position;
+
+    auto classifyProbe = [&](const geometry_msgs::msg::Point &target) {
+        if (!map_ok) {
+            return CandidateStatus::UNKNOWN;
+        }
+        geometry_msgs::msg::Point hit;
+        const bool blocked_los = raycast(origin, target, hit, false);
+        if (blocked_los || isOccupied(target)) {
+            return CandidateStatus::BLOCKED;
+        }
+        if (isUnknown(target)) {
+            return CandidateStatus::UNKNOWN;
+        }
+        if (isFree(target)) {
+            return CandidateStatus::FREE;
+        }
+        return CandidateStatus::BLOCKED;
+    };
 
     for (int ip = 0; ip < bins_pitch; ++ip) {
         const double beta =
@@ -577,64 +660,218 @@ void PathPlanner::updateBranchCandidates()
             target.y = origin.y + std::cos(rel_pitch_rad) * std::sin(heading) * probe_dist_m;
             target.z = origin.z + std::sin(rel_pitch_rad) * probe_dist_m;
 
-            geometry_msgs::msg::Point hit;
-            // For exploration candidates, unknown is allowed and visualized separately.
-            const bool blocked_los = raycast(origin, target, hit, false);
-
             CandidatePoint candidate;
             candidate.point = target;
             candidate.rel_yaw_deg = rel_yaw_deg;
             candidate.rel_pitch_deg = rel_pitch_deg;
-            if (!map_ok) {
-                candidate.status = CandidateStatus::UNKNOWN;
-            } else if (blocked_los || isOccupied(target)) {
-                candidate.status = CandidateStatus::BLOCKED;
-            } else if (isUnknown(target)) {
-                candidate.status = CandidateStatus::UNKNOWN;
+            candidate.status = classifyProbe(target);
+            if (candidate.status == CandidateStatus::UNKNOWN) {
                 ++unknown_candidate_count_;
-            } else if (isFree(target)) {
-                candidate.status = CandidateStatus::FREE;
+            } else if (candidate.status == CandidateStatus::FREE) {
                 ++free_candidate_count_;
-            } else {
-                candidate.status = CandidateStatus::BLOCKED;
             }
 
             latest_candidates_.push_back(candidate);
+
+            bool known_path = false;
+            if (known_path_reject_radius_m_ > 0.0) {
+                const auto nearest = findNearestNodeId(candidate.point, known_path_reject_radius_m_);
+                if (nearest.has_value()) {
+                    const auto *node = findNodeById(*nearest);
+                    if (node && node->valid && (node->is_transit || node->status == GraphNodeStatus::VISITED)) {
+                        known_path = true;
+                    }
+                }
+            }
+            candidate_known_path_flags_.push_back(known_path);
         }
     }
 
     // Pick a preferred direction for upcoming policy steps:
     // unknown can be prioritized over free (configurable).
-    int best_priority = -1;
+    auto candidatePriority = [this](CandidateStatus status) {
+        if (status == CandidateStatus::UNKNOWN) {
+            return prefer_unknown_over_free_ ? 3 : 2;
+        }
+        if (status == CandidateStatus::FREE) {
+            return prefer_unknown_over_free_ ? 2 : 3;
+        }
+        return 1;
+    };
+
+    int best_priority = std::numeric_limits<int>::min();
     double best_angle_cost = std::numeric_limits<double>::max();
+    bool found_not_known = false;
     for (std::size_t i = 0; i < latest_candidates_.size(); ++i) {
         const auto &c = latest_candidates_[i];
-        int prio = 0;
-        if (c.status == CandidateStatus::UNKNOWN) {
-            prio = prefer_unknown_over_free_ ? 3 : 2;
-        } else if (c.status == CandidateStatus::FREE) {
-            prio = prefer_unknown_over_free_ ? 2 : 3;
-        } else {
-            prio = 1;
+        if (!(c.status == CandidateStatus::UNKNOWN || c.status == CandidateStatus::FREE)) {
+            continue;
         }
 
+        const bool known_path = (i < candidate_known_path_flags_.size() && candidate_known_path_flags_[i]);
+        if (found_not_known && known_path) {
+            continue;
+        }
+
+        int prio = candidatePriority(c.status);
+        if (known_path) {
+            prio -= 10;
+        }
         const double angle_cost = std::abs(c.rel_yaw_deg) + 0.7 * std::abs(c.rel_pitch_deg);
         if (prio > best_priority ||
             (prio == best_priority && angle_cost < best_angle_cost)) {
             best_priority = prio;
             best_angle_cost = angle_cost;
             selected_candidate_index_ = i;
+            if (!known_path) {
+                found_not_known = true;
+            }
         }
     }
 
-    const std::size_t exploratory_count =
-        free_candidate_count_ + (branch_count_unknown_ ? unknown_candidate_count_ : 0U);
-    branch_detected_ = map_ok &&
-        (exploratory_count >= static_cast<std::size_t>(std::max(2, branch_min_free_candidates_)));
+    struct SideBundleResult {
+        bool detected{false};
+        double mean_depth_m{0.0};
+        double best_pitch_deg{0.0};
+    };
+
+    auto evaluateSideBundle = [&](double side_sign) {
+        SideBundleResult result;
+        if (!map_ok) {
+            return result;
+        }
+
+        int yaw_bins = std::max(1, side_opening_bundle_yaw_bins_);
+        if ((yaw_bins % 2) == 0) {
+            ++yaw_bins;
+        }
+        int pitch_bins = std::max(1, side_opening_bundle_pitch_bins_);
+        if ((pitch_bins % 2) == 0) {
+            ++pitch_bins;
+        }
+
+        const double half_yaw_deg = std::max(0.0, side_opening_bundle_half_yaw_deg_);
+        const double half_pitch_deg = std::max(0.0, side_opening_bundle_half_pitch_deg_);
+        const double min_side_abs_yaw = std::max(0.0, side_opening_min_abs_yaw_deg_);
+        const double min_open_depth = std::max(0.1, side_opening_min_depth_m_);
+        const double required_fraction = std::clamp(side_opening_required_fraction_, 0.0, 1.0);
+
+        int sample_count = 0;
+        int pass_count = 0;
+        double depth_sum = 0.0;
+        double best_depth = -1.0;
+        double best_pitch_deg = 0.0;
+
+        for (int ip = 0; ip < pitch_bins; ++ip) {
+            const double beta =
+                (pitch_bins == 1) ? 0.0 : (-1.0 + 2.0 * static_cast<double>(ip) / (pitch_bins - 1));
+            const double rel_pitch_deg = beta * half_pitch_deg;
+            const double rel_pitch_rad = rel_pitch_deg * kDegToRad;
+
+            for (int iy = 0; iy < yaw_bins; ++iy) {
+                const double alpha =
+                    (yaw_bins == 1) ? 0.0 : (-1.0 + 2.0 * static_cast<double>(iy) / (yaw_bins - 1));
+                const double rel_yaw_deg = side_sign * 90.0 + alpha * half_yaw_deg;
+                if (std::abs(rel_yaw_deg) < min_side_abs_yaw) {
+                    continue;
+                }
+
+                const double heading = yaw + rel_yaw_deg * kDegToRad;
+                geometry_msgs::msg::Point far_target;
+                far_target.x = origin.x + std::cos(rel_pitch_rad) * std::cos(heading) * branch_probe_dist_m;
+                far_target.y = origin.y + std::cos(rel_pitch_rad) * std::sin(heading) * branch_probe_dist_m;
+                far_target.z = origin.z + std::sin(rel_pitch_rad) * branch_probe_dist_m;
+
+                geometry_msgs::msg::Point hit;
+                const bool blocked = raycast(origin, far_target, hit, false);
+                const double open_depth = blocked ? distance3(origin, hit) : branch_probe_dist_m;
+
+                ++sample_count;
+                depth_sum += open_depth;
+                if (open_depth > best_depth) {
+                    best_depth = open_depth;
+                    best_pitch_deg = rel_pitch_deg;
+                }
+                if (open_depth >= min_open_depth) {
+                    ++pass_count;
+                }
+            }
+        }
+
+        if (sample_count <= 0) {
+            return result;
+        }
+
+        const double pass_fraction = static_cast<double>(pass_count) / static_cast<double>(sample_count);
+        if (pass_fraction >= required_fraction) {
+            result.detected = true;
+            result.mean_depth_m = depth_sum / static_cast<double>(sample_count);
+            result.best_pitch_deg = best_pitch_deg;
+        }
+        return result;
+    };
+
+    const auto left_bundle = evaluateSideBundle(-1.0);
+    const auto right_bundle = evaluateSideBundle(1.0);
+    side_opening_left_streak_ = left_bundle.detected ? (side_opening_left_streak_ + 1) : 0;
+    side_opening_right_streak_ = right_bundle.detected ? (side_opening_right_streak_ + 1) : 0;
+
+    auto makeSideTarget = [&](double side_sign, double rel_pitch_deg) {
+        geometry_msgs::msg::Point target;
+        const double rel_yaw_deg = side_sign * 90.0;
+        const double rel_pitch_rad = rel_pitch_deg * kDegToRad;
+        const double heading = yaw + rel_yaw_deg * kDegToRad;
+        const double branch_step = std::max(0.5, candidate_distance_m_);
+        target.x = origin.x + std::cos(rel_pitch_rad) * std::cos(heading) * branch_step;
+        target.y = origin.y + std::cos(rel_pitch_rad) * std::sin(heading) * branch_step;
+        target.z = origin.z + std::sin(rel_pitch_rad) * branch_step;
+        return target;
+    };
+
+    struct StableSideCandidate {
+        geometry_msgs::msg::Point target{};
+        double mean_depth_m{0.0};
+    };
+    std::vector<StableSideCandidate> stable_sides;
+    const int confirm_cycles = std::max(1, side_opening_confirm_cycles_);
+    if (left_bundle.detected && side_opening_left_streak_ >= confirm_cycles) {
+        stable_sides.push_back({makeSideTarget(-1.0, left_bundle.best_pitch_deg), left_bundle.mean_depth_m});
+    }
+    if (right_bundle.detected && side_opening_right_streak_ >= confirm_cycles) {
+        stable_sides.push_back({makeSideTarget(1.0, right_bundle.best_pitch_deg), right_bundle.mean_depth_m});
+    }
+
+    std::stable_sort(stable_sides.begin(), stable_sides.end(),
+                     [](const StableSideCandidate &lhs, const StableSideCandidate &rhs) {
+        return lhs.mean_depth_m > rhs.mean_depth_m;
+    });
+
+    const int side_limit = std::max(0, side_opening_max_candidates_);
+    for (int i = 0; i < side_limit && i < static_cast<int>(stable_sides.size()); ++i) {
+        const auto &candidate = stable_sides[static_cast<std::size_t>(i)];
+        if (isOccupied(candidate.target)) {
+            continue;
+        }
+        bool known_path = false;
+        if (known_path_reject_radius_m_ > 0.0) {
+            const auto nearest = findNearestNodeId(candidate.target, known_path_reject_radius_m_);
+            if (nearest.has_value()) {
+                const auto *node = findNodeById(*nearest);
+                if (node && node->valid && (node->is_transit || node->status == GraphNodeStatus::VISITED)) {
+                    known_path = true;
+                }
+            }
+        }
+        if (!known_path) {
+            side_opening_targets_.push_back(candidate.target);
+        }
+    }
+
+    branch_detected_ = !side_opening_targets_.empty();
     if (branch_detected_) {
         RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
-                             "[branch] detected free=%zu unknown=%zu",
-                             free_candidate_count_, unknown_candidate_count_);
+                             "[branch] stable side opening count=%zu left_streak=%d right_streak=%d",
+                             side_opening_targets_.size(), side_opening_left_streak_, side_opening_right_streak_);
     }
 }
 
@@ -672,10 +909,59 @@ void PathPlanner::updateExploreGraphFromCandidates()
     if (!anchor) {
         return;
     }
+    previous_anchor_node_id_ = current_anchor_node_id_;
+    current_anchor_node_id_ = anchor_id;
     anchor->status = GraphNodeStatus::VISITED;
     anchor->yaw = yaw;
     anchor->stamp = now;
     anchor->valid = true;
+
+    bool loop_closed = false;
+
+    // Try to explicitly connect to already-visited graph in a wider radius.
+    const double connect_radius = std::max(graph_merge_radius_m_, graph_loop_connect_radius_m_);
+    const int max_links = std::max(0, graph_loop_connect_max_links_);
+    int links_added = 0;
+    const auto nearby_ids = findNearbyNodeIds(origin, connect_radius);
+    for (const int node_id : nearby_ids) {
+        if (node_id <= 0 || node_id == anchor_id || node_id == previous_anchor_node_id_) {
+            continue;
+        }
+        if (max_links > 0 && links_added >= max_links) {
+            break;
+        }
+
+        const auto *node = findNodeById(node_id);
+        if (!node || !node->valid) {
+            continue;
+        }
+        if (!(node->is_transit || node->status == GraphNodeStatus::VISITED ||
+              node->status == GraphNodeStatus::DEAD_END)) {
+            continue;
+        }
+
+        geometry_msgs::msg::Point hit;
+        const bool blocked = raycast(origin, node->position, hit, false);
+        if (blocked || isOccupied(node->position)) {
+            continue;
+        }
+
+        const bool had_edge = hasGraphEdge(anchor_id, node_id);
+        upsertGraphEdge(anchor_id, node_id);
+        if (!had_edge) {
+            loop_closed = true;
+            ++links_added;
+        }
+    }
+
+    // During BACKTRACK / RETURN_HOME we only maintain anchor + loop connections.
+    if (mode_ != PlannerMode::EXPLORE) {
+        if (loop_closed) {
+            force_graph_replan_after_loop_ = true;
+            queueEventInfo("EVENT_LOOP_CLOSED", last_loop_event_time_);
+        }
+        return;
+    }
 
     // Apply placement hysteresis to avoid node flood while hovering.
     const double min_seed_spacing = std::max(0.2, frontier_node_spacing_m_);
@@ -684,12 +970,13 @@ void PathPlanner::updateExploreGraphFromCandidates()
         return;
     }
 
-    // Collect exploratory candidates (FREE + UNKNOWN) and rank deterministically.
+    // Collect exploratory candidates and rank deterministically.
     std::vector<std::size_t> exploratory_indices;
     exploratory_indices.reserve(latest_candidates_.size());
     for (std::size_t i = 0; i < latest_candidates_.size(); ++i) {
         const auto status = latest_candidates_[i].status;
-        if (status == CandidateStatus::FREE || status == CandidateStatus::UNKNOWN) {
+        const bool known_path = i < candidate_known_path_flags_.size() && candidate_known_path_flags_[i];
+        if ((status == CandidateStatus::FREE || status == CandidateStatus::UNKNOWN) && !known_path) {
             exploratory_indices.push_back(i);
         }
     }
@@ -724,8 +1011,10 @@ void PathPlanner::updateExploreGraphFromCandidates()
         return lhs < rhs;
     });
 
+    const bool allow_side_nodes =
+        create_side_frontier_nodes_ && branch_detected_ && !side_opening_targets_.empty();
     const int max_nodes = std::max(1, max_frontier_nodes_per_cycle_);
-    const int limit = create_side_frontier_nodes_ ? max_nodes : 1;
+    const int limit = allow_side_nodes ? max_nodes : 1;
     std::vector<std::size_t> chosen;
     chosen.reserve(static_cast<std::size_t>(limit));
     auto pushUnique = [&chosen](std::size_t idx) {
@@ -734,23 +1023,109 @@ void PathPlanner::updateExploreGraphFromCandidates()
         }
     };
 
-    if (selected_candidate_index_.has_value() &&
-        *selected_candidate_index_ < latest_candidates_.size()) {
+    if (selected_candidate_index_.has_value() && *selected_candidate_index_ < latest_candidates_.size()) {
         const auto selected_status = latest_candidates_[*selected_candidate_index_].status;
-        if (selected_status == CandidateStatus::FREE || selected_status == CandidateStatus::UNKNOWN) {
+        const bool selected_known_path =
+            *selected_candidate_index_ < candidate_known_path_flags_.size() &&
+            candidate_known_path_flags_[*selected_candidate_index_];
+        if (!selected_known_path &&
+            (selected_status == CandidateStatus::FREE || selected_status == CandidateStatus::UNKNOWN)) {
             pushUnique(*selected_candidate_index_);
         }
     }
-    for (const auto idx : ranked) {
-        if (static_cast<int>(chosen.size()) >= limit) {
-            break;
+
+    std::vector<int> chosen_node_ids;
+    chosen_node_ids.reserve(static_cast<std::size_t>(limit));
+
+    int side_nodes_added = 0;
+    if (allow_side_nodes) {
+        const int side_budget = std::max(0, limit - static_cast<int>(chosen.size()));
+        const double reuse_radius = std::max(0.0, side_opening_reuse_radius_m_);
+        for (const auto &raw_side_target : side_opening_targets_) {
+            if (side_nodes_added >= side_budget) {
+                break;
+            }
+
+            geometry_msgs::msg::Point side_target = raw_side_target;
+            if (reuse_radius > 1e-6) {
+                const auto nearest = findNearestNodeId(side_target, reuse_radius);
+                if (nearest.has_value()) {
+                    const auto *nearest_node = findNodeById(*nearest);
+                    if (nearest_node && nearest_node->valid &&
+                        nearest_node->status == GraphNodeStatus::FRONTIER &&
+                        nearest_node->frontier_score >= 2.4) {
+                        side_target = nearest_node->position;
+                    }
+                }
+            }
+
+            bool inserted_new = false;
+            const int side_node_id = addOrMergeGraphNode(side_target, false, inserted_new);
+            if (side_node_id <= 0 || side_node_id == anchor_id) {
+                continue;
+            }
+
+            auto *side_node = findNodeById(side_node_id);
+            if (!side_node) {
+                continue;
+            }
+            side_node->status = GraphNodeStatus::FRONTIER;
+            side_node->frontier_score = 2.5;
+            side_node->yaw = yaw;
+            side_node->stamp = now;
+            side_node->valid = true;
+
+            // Collapse nearby duplicate side-frontier nodes into one stable target.
+            if (reuse_radius > 1e-6) {
+                for (auto &node : graph_nodes_) {
+                    if (!node.valid || node.is_transit || node.id == side_node_id) {
+                        continue;
+                    }
+                    if (!(node.status == GraphNodeStatus::FRONTIER || node.status == GraphNodeStatus::UNVISITED)) {
+                        continue;
+                    }
+                    if (distance3(node.position, side_node->position) > reuse_radius) {
+                        continue;
+                    }
+                    node.valid = false;
+                    for (auto &edge : graph_edges_) {
+                        if (edge.from_id == node.id || edge.to_id == node.id) {
+                            edge.valid = false;
+                        }
+                    }
+                }
+            }
+            chosen_node_ids.push_back(side_node_id);
+
+            const bool had_edge = hasGraphEdge(anchor_id, side_node_id);
+            upsertGraphEdge(anchor_id, side_node_id);
+            if (!inserted_new && !had_edge) {
+                loop_closed = true;
+            }
+            ++side_nodes_added;
         }
-        pushUnique(idx);
     }
 
-    bool loop_closed = false;
+    auto appendRanked = [&]() {
+        for (const auto idx : ranked) {
+            if ((static_cast<int>(chosen.size()) + side_nodes_added) >= limit) {
+                break;
+            }
+            if (selected_candidate_index_.has_value() && idx == *selected_candidate_index_) {
+                continue;
+            }
+            if (idx < candidate_known_path_flags_.size() && candidate_known_path_flags_[idx]) {
+                continue;
+            }
+            pushUnique(idx);
+        }
+    };
+
+    appendRanked();
+
     for (const auto idx : chosen) {
         const auto &candidate = latest_candidates_[idx];
+        const bool known_path = idx < candidate_known_path_flags_.size() && candidate_known_path_flags_[idx];
 
         bool inserted_new = false;
         const int node_id = addOrMergeGraphNode(candidate.point, false, inserted_new);
@@ -762,12 +1137,18 @@ void PathPlanner::updateExploreGraphFromCandidates()
         if (node) {
             const bool selected = selected_candidate_index_.has_value() &&
                                   (*selected_candidate_index_ == idx);
-            node->status = selected ? GraphNodeStatus::UNVISITED : GraphNodeStatus::FRONTIER;
-            node->frontier_score = (candidate.status == CandidateStatus::UNKNOWN) ? 2.0 : 1.0;
+            if (known_path && !inserted_new) {
+                node->status = GraphNodeStatus::VISITED;
+                node->frontier_score = 0.0;
+            } else {
+                node->status = selected ? GraphNodeStatus::UNVISITED : GraphNodeStatus::FRONTIER;
+                node->frontier_score = (candidate.status == CandidateStatus::UNKNOWN) ? 2.0 : 1.0;
+            }
             node->yaw = yaw + candidate.rel_yaw_deg * kDegToRad;
             node->stamp = now;
             node->valid = true;
         }
+        chosen_node_ids.push_back(node_id);
 
         if (node_id == anchor_id) {
             continue;
@@ -780,10 +1161,32 @@ void PathPlanner::updateExploreGraphFromCandidates()
         }
     }
 
+    // Mark stale local alternatives as dead-end instead of deleting graph topology.
+    const double cleanup_radius = std::max(1.0, frontier_cleanup_radius_m_);
+    for (auto &node : graph_nodes_) {
+        if (!node.valid || node.is_transit || node.id == anchor_id) {
+            continue;
+        }
+        if (distance3(node.position, origin) > cleanup_radius) {
+            continue;
+        }
+        if (!(node.status == GraphNodeStatus::FRONTIER || node.status == GraphNodeStatus::UNVISITED)) {
+            continue;
+        }
+        const bool keep = std::find(chosen_node_ids.begin(), chosen_node_ids.end(), node.id) !=
+            chosen_node_ids.end();
+        if (!keep) {
+            node.status = GraphNodeStatus::DEAD_END;
+            node.frontier_score = 0.0;
+            node.stamp = now;
+        }
+    }
+
     has_frontier_seed_position_ = true;
     last_frontier_seed_position_ = origin;
 
     if (loop_closed) {
+        force_graph_replan_after_loop_ = true;
         queueEventInfo("EVENT_LOOP_CLOSED", last_loop_event_time_);
     }
 
@@ -797,6 +1200,97 @@ void PathPlanner::updateLocalPlanAndTrajectory()
     // Local planning is active only when planner outputs are allowed.
     if (!canPublishPlannerOutput()) {
         return;
+    }
+
+    advanceRouteProgressIfReached();
+
+    if (mode_ == PlannerMode::EXPLORE) {
+        if (force_graph_replan_after_loop_) {
+            force_graph_replan_after_loop_ = false;
+            const bool has_unvisited = hasUnvisitedFrontiers();
+            if (has_unvisited && current_anchor_node_id_ > 0) {
+                const auto frontier_node = nearestUnvisitedFrontierNodeId(current_anchor_node_id_);
+                if (frontier_node.has_value() && startRouteToNode(*frontier_node)) {
+                    changeMode(PlannerMode::BACKTRACK, "loop closure, switch to graph backtrack");
+                    return;
+                }
+                queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+                return;
+            }
+            if (!has_unvisited) {
+                if (!exploration_done_reported_) {
+                    publishDone("DONE_EXPLORATION_COMPLETE");
+                    exploration_done_reported_ = true;
+                    RCLCPP_INFO(this->get_logger(), "[explore] complete after loop closure.");
+                }
+                return;
+            }
+        }
+
+        const auto explore_goal = selectGoalPoint();
+        if (!explore_goal.has_value()) {
+            if (hasUnvisitedFrontiers()) {
+                if (current_anchor_node_id_ > 0) {
+                    const auto frontier_node = nearestUnvisitedFrontierNodeId(current_anchor_node_id_);
+                    if (frontier_node.has_value() && startRouteToNode(*frontier_node)) {
+                        changeMode(PlannerMode::BACKTRACK, "explore dead-end, backtrack to unvisited");
+                    } else {
+                        queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+                    }
+                } else {
+                    queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+                }
+            } else if (!exploration_done_reported_) {
+                publishDone("DONE_EXPLORATION_COMPLETE");
+                exploration_done_reported_ = true;
+                RCLCPP_INFO(this->get_logger(), "[explore] complete, no unvisited frontiers left.");
+            }
+            return;
+        }
+    }
+
+    if (mode_ == PlannerMode::BACKTRACK) {
+        if (active_route_node_ids_.empty()) {
+            if (hasUnvisitedFrontiers() && current_anchor_node_id_ > 0) {
+                const auto frontier_node = nearestUnvisitedFrontierNodeId(current_anchor_node_id_);
+                if (!(frontier_node.has_value() && startRouteToNode(*frontier_node))) {
+                    queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+                    return;
+                }
+            } else {
+                changeMode(PlannerMode::EXPLORE, "no reachable unvisited frontier");
+                return;
+            }
+        }
+        if (active_route_index_ >= active_route_node_ids_.size()) {
+            active_route_node_ids_.clear();
+            active_route_index_ = 0;
+            changeMode(PlannerMode::EXPLORE, "backtrack route complete");
+            return;
+        }
+    }
+
+    if (mode_ == PlannerMode::RETURN_HOME) {
+        if (!ensureReturnHomeNode()) {
+            queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+            return;
+        }
+
+        if (active_route_node_ids_.empty()) {
+            if (!startRouteToNode(home_node_id_)) {
+                queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+                return;
+            }
+        }
+
+        if (active_route_index_ >= active_route_node_ids_.size()) {
+            if (!return_home_done_reported_) {
+                publishDone("DONE_RETURN_HOME_REACHED");
+                return_home_done_reported_ = true;
+            }
+            changeMode(PlannerMode::HOLD, "return-home route complete");
+            return;
+        }
     }
 
     const auto goal_opt = selectGoalPoint();
@@ -831,10 +1325,26 @@ void PathPlanner::updateLocalPlanAndTrajectory()
 
 std::optional<geometry_msgs::msg::Point> PathPlanner::selectGoalPoint() const
 {
+    if ((mode_ == PlannerMode::BACKTRACK || mode_ == PlannerMode::RETURN_HOME) &&
+        active_route_index_ < active_route_node_ids_.size()) {
+        const auto *route_node = findNodeById(active_route_node_ids_[active_route_index_]);
+        if (route_node && route_node->valid) {
+            return route_node->position;
+        }
+    }
+
+    if (mode_ != PlannerMode::EXPLORE) {
+        return std::nullopt;
+    }
+
     // Priority 1: use selected exploratory candidate from current local fan.
     if (selected_candidate_index_.has_value() && *selected_candidate_index_ < latest_candidates_.size()) {
+        const bool selected_known_path =
+            *selected_candidate_index_ < candidate_known_path_flags_.size() &&
+            candidate_known_path_flags_[*selected_candidate_index_];
         const auto &selected = latest_candidates_[*selected_candidate_index_];
-        if (selected.status == CandidateStatus::FREE || selected.status == CandidateStatus::UNKNOWN) {
+        if (!selected_known_path &&
+            (selected.status == CandidateStatus::FREE || selected.status == CandidateStatus::UNKNOWN)) {
             return selected.point;
         }
     }
@@ -875,6 +1385,280 @@ std::optional<geometry_msgs::msg::Point> PathPlanner::selectGoalPoint() const
         return std::nullopt;
     }
     return best;
+}
+
+bool PathPlanner::hasUnvisitedFrontiers() const
+{
+    for (const auto &node : graph_nodes_) {
+        if (!node.valid || node.is_transit) {
+            continue;
+        }
+        if (node.status == GraphNodeStatus::FRONTIER || node.status == GraphNodeStatus::UNVISITED) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::optional<int> PathPlanner::nearestUnvisitedFrontierNodeId(int start_node_id) const
+{
+    if (start_node_id <= 0) {
+        return std::nullopt;
+    }
+    const auto *start = findNodeById(start_node_id);
+    if (!start || !start->valid) {
+        return std::nullopt;
+    }
+
+    std::map<int, std::vector<std::pair<int, double>>> adjacency;
+    for (const auto &node : graph_nodes_) {
+        if (node.valid) {
+            adjacency[node.id];
+        }
+    }
+    for (const auto &edge : graph_edges_) {
+        if (!edge.valid) {
+            continue;
+        }
+        const auto *from = findNodeById(edge.from_id);
+        const auto *to = findNodeById(edge.to_id);
+        if (!from || !to || !from->valid || !to->valid) {
+            continue;
+        }
+        adjacency[edge.from_id].push_back({edge.to_id, edge.cost});
+        adjacency[edge.to_id].push_back({edge.from_id, edge.cost});
+    }
+    if (adjacency.find(start_node_id) == adjacency.end()) {
+        return std::nullopt;
+    }
+
+    const double inf = std::numeric_limits<double>::infinity();
+    std::map<int, double> dist;
+    for (const auto &kv : adjacency) {
+        dist[kv.first] = inf;
+    }
+    dist[start_node_id] = 0.0;
+
+    using QueueItem = std::pair<double, int>;
+    std::priority_queue<QueueItem, std::vector<QueueItem>, std::greater<QueueItem>> pq;
+    pq.push({0.0, start_node_id});
+
+    while (!pq.empty()) {
+        const auto [d, u] = pq.top();
+        pq.pop();
+        if (d > dist[u] + 1e-9) {
+            continue;
+        }
+        for (const auto &[v, w] : adjacency[u]) {
+            const double alt = d + w;
+            if (alt + 1e-9 < dist[v]) {
+                dist[v] = alt;
+                pq.push({alt, v});
+            }
+        }
+    }
+
+    bool found = false;
+    int best_id = -1;
+    double best_cost = inf;
+    double best_euclid = inf;
+    for (const auto &node : graph_nodes_) {
+        if (!node.valid || node.is_transit) {
+            continue;
+        }
+        if (!(node.status == GraphNodeStatus::FRONTIER || node.status == GraphNodeStatus::UNVISITED)) {
+            continue;
+        }
+        const auto it = dist.find(node.id);
+        if (it == dist.end() || !std::isfinite(it->second)) {
+            continue;
+        }
+        const double euclid = distance3(start->position, node.position);
+        if (!found || it->second < best_cost - 1e-9 ||
+            (std::abs(it->second - best_cost) <= 1e-9 && euclid < best_euclid - 1e-9) ||
+            (std::abs(it->second - best_cost) <= 1e-9 &&
+             std::abs(euclid - best_euclid) <= 1e-9 && node.id < best_id)) {
+            found = true;
+            best_id = node.id;
+            best_cost = it->second;
+            best_euclid = euclid;
+        }
+    }
+
+    if (!found) {
+        return std::nullopt;
+    }
+    return best_id;
+}
+
+bool PathPlanner::computeShortestPathNodeIds(int start_id, int goal_id, std::vector<int> &path_out) const
+{
+    path_out.clear();
+    if (start_id <= 0 || goal_id <= 0) {
+        return false;
+    }
+    if (start_id == goal_id) {
+        path_out.push_back(start_id);
+        return true;
+    }
+
+    const auto *start = findNodeById(start_id);
+    const auto *goal = findNodeById(goal_id);
+    if (!start || !goal || !start->valid || !goal->valid) {
+        return false;
+    }
+
+    std::map<int, std::vector<std::pair<int, double>>> adjacency;
+    for (const auto &node : graph_nodes_) {
+        if (node.valid) {
+            adjacency[node.id];
+        }
+    }
+    for (const auto &edge : graph_edges_) {
+        if (!edge.valid) {
+            continue;
+        }
+        const auto *from = findNodeById(edge.from_id);
+        const auto *to = findNodeById(edge.to_id);
+        if (!from || !to || !from->valid || !to->valid) {
+            continue;
+        }
+        adjacency[edge.from_id].push_back({edge.to_id, edge.cost});
+        adjacency[edge.to_id].push_back({edge.from_id, edge.cost});
+    }
+
+    if (adjacency.find(start_id) == adjacency.end() || adjacency.find(goal_id) == adjacency.end()) {
+        return false;
+    }
+
+    const double inf = std::numeric_limits<double>::infinity();
+    std::map<int, double> dist;
+    std::map<int, int> prev;
+    for (const auto &kv : adjacency) {
+        dist[kv.first] = inf;
+        prev[kv.first] = -1;
+    }
+    dist[start_id] = 0.0;
+
+    using QueueItem = std::pair<double, int>;
+    std::priority_queue<QueueItem, std::vector<QueueItem>, std::greater<QueueItem>> pq;
+    pq.push({0.0, start_id});
+
+    while (!pq.empty()) {
+        const auto [d, u] = pq.top();
+        pq.pop();
+        if (d > dist[u] + 1e-9) {
+            continue;
+        }
+        if (u == goal_id) {
+            break;
+        }
+        for (const auto &[v, w] : adjacency[u]) {
+            const double alt = d + w;
+            if (alt + 1e-9 < dist[v] ||
+                (std::abs(alt - dist[v]) <= 1e-9 && (prev[v] < 0 || u < prev[v]))) {
+                dist[v] = alt;
+                prev[v] = u;
+                pq.push({alt, v});
+            }
+        }
+    }
+
+    if (!std::isfinite(dist[goal_id])) {
+        return false;
+    }
+
+    std::vector<int> rev;
+    for (int at = goal_id; at >= 0; at = prev[at]) {
+        rev.push_back(at);
+        if (at == start_id) {
+            break;
+        }
+    }
+    if (rev.empty() || rev.back() != start_id) {
+        return false;
+    }
+
+    path_out.assign(rev.rbegin(), rev.rend());
+    return !path_out.empty();
+}
+
+bool PathPlanner::startRouteToNode(int goal_node_id)
+{
+    if (goal_node_id <= 0 || current_anchor_node_id_ <= 0) {
+        return false;
+    }
+
+    std::vector<int> route;
+    if (!computeShortestPathNodeIds(current_anchor_node_id_, goal_node_id, route)) {
+        return false;
+    }
+    if (route.size() <= 1) {
+        active_route_node_ids_.clear();
+        active_route_index_ = 0;
+        return true;
+    }
+
+    active_route_node_ids_ = std::move(route);
+    active_route_index_ = 1; // index 0 is current node
+    RCLCPP_INFO(this->get_logger(), "[route] start=%d goal=%d hops=%zu",
+                current_anchor_node_id_, goal_node_id, active_route_node_ids_.size());
+    return true;
+}
+
+bool PathPlanner::ensureReturnHomeNode()
+{
+    if (home_node_id_ > 0) {
+        const auto *home = findNodeById(home_node_id_);
+        if (home && home->valid) {
+            return true;
+        }
+    }
+
+    if (has_return_home_target_) {
+        bool inserted_new = false;
+        const int node_id = addOrMergeGraphNode(return_home_target_, true, inserted_new);
+        if (node_id > 0) {
+            home_node_id_ = node_id;
+            if (auto *home = findNodeById(home_node_id_)) {
+                home->status = GraphNodeStatus::VISITED;
+                home->is_transit = true;
+                home->valid = true;
+            }
+            return true;
+        }
+    }
+
+    if (home_node_id_ <= 0 && last_transit_graph_node_id_ > 0) {
+        home_node_id_ = last_transit_graph_node_id_;
+    }
+    if (home_node_id_ > 0) {
+        const auto *home = findNodeById(home_node_id_);
+        return home && home->valid;
+    }
+    return false;
+}
+
+void PathPlanner::advanceRouteProgressIfReached()
+{
+    if (!hasValidOdom() || active_route_node_ids_.empty()) {
+        return;
+    }
+
+    const auto &origin = latest_odom_.pose.pose.position;
+    const double reached_dist = std::max(0.2, route_node_reached_dist_m_);
+    while (active_route_index_ < active_route_node_ids_.size()) {
+        const auto *target = findNodeById(active_route_node_ids_[active_route_index_]);
+        if (!target || !target->valid) {
+            ++active_route_index_;
+            continue;
+        }
+        if (distance3(origin, target->position) <= reached_dist) {
+            ++active_route_index_;
+            continue;
+        }
+        break;
+    }
 }
 
 bool PathPlanner::shouldReplanForGoal(const geometry_msgs::msg::Point &goal) const
@@ -1114,6 +1898,16 @@ void PathPlanner::publishCandidateMarkers()
     selected.color.b = 1.00F;
     selected.color.a = 1.00F;
 
+    visualization_msgs::msg::Marker side_openings = free_points;
+    side_openings.id = 6;
+    side_openings.color.r = 0.00F;
+    side_openings.color.g = 1.00F;
+    side_openings.color.b = 1.00F;
+    side_openings.color.a = 1.00F;
+    side_openings.scale.x = 0.50;
+    side_openings.scale.y = 0.50;
+    side_openings.scale.z = 0.50;
+
     for (const auto &candidate : latest_candidates_) {
         switch (candidate.status) {
         case CandidateStatus::FREE:
@@ -1131,9 +1925,14 @@ void PathPlanner::publishCandidateMarkers()
         rays.points.push_back(candidate.point);
     }
 
+    for (const auto &p : side_opening_targets_) {
+        side_openings.points.push_back(p);
+    }
+
     array.markers.push_back(free_points);
     array.markers.push_back(blocked_points);
     array.markers.push_back(unknown_points);
+    array.markers.push_back(side_openings);
     array.markers.push_back(rays);
     if (selected_candidate_index_.has_value() &&
         *selected_candidate_index_ < latest_candidates_.size()) {

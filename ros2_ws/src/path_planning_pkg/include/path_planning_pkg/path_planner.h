@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <string>
 #include <vector>
+#include <utility>
 
 namespace octomap
 {
@@ -118,9 +119,14 @@ private: // STATE
     int next_graph_node_id_{1};
     int last_transit_graph_node_id_{-1};
     std::vector<CandidatePoint> latest_candidates_;
+    std::vector<bool> candidate_known_path_flags_;
+    std::vector<geometry_msgs::msg::Point> side_opening_targets_;
     std::optional<std::size_t> selected_candidate_index_;
     bool branch_detected_{false};
     bool last_branch_detected_{false};
+    int side_opening_left_streak_{0};
+    int side_opening_right_streak_{0};
+    bool force_graph_replan_after_loop_{false};
     std::size_t free_candidate_count_{0};
     std::size_t unknown_candidate_count_{0};
     bool has_frontier_seed_position_{false};
@@ -133,6 +139,15 @@ private: // STATE
     bool has_last_plan_goal_{false};
     geometry_msgs::msg::Point last_plan_goal_{};
     std::size_t published_plan_count_{0};
+    int current_anchor_node_id_{-1};
+    int previous_anchor_node_id_{-1};
+    int home_node_id_{-1};
+    bool has_return_home_target_{false};
+    geometry_msgs::msg::Point return_home_target_{};
+    std::vector<int> active_route_node_ids_;
+    std::size_t active_route_index_{0};
+    bool exploration_done_reported_{false};
+    bool return_home_done_reported_{false};
 
     std::string odom_frame_id_;
     std::string map_frame_id_;
@@ -188,6 +203,9 @@ private: // PARAMETERS
     double transit_node_spacing_m_{10.0};
     double graph_merge_radius_m_{3.0};
     double graph_ahead_query_dist_m_{12.0};
+    double graph_loop_connect_radius_m_{12.0};
+    int graph_loop_connect_max_links_{3};
+    double route_node_reached_dist_m_{1.2};
 
     // Explore candidate generation
     double candidate_distance_m_{8.0};
@@ -195,12 +213,23 @@ private: // PARAMETERS
     int candidate_bin_count_{7};
     double candidate_vertical_half_fov_deg_{30.0};
     int candidate_vertical_bin_count_{3};
-    int branch_min_free_candidates_{2};
-    bool branch_count_unknown_{true};
+    double branch_probe_distance_m_{60.0};
+    double side_opening_min_abs_yaw_deg_{80.0};
+    double side_opening_min_depth_m_{60.0};
+    double side_opening_bundle_half_yaw_deg_{10.0};
+    double side_opening_bundle_half_pitch_deg_{12.0};
+    int side_opening_bundle_yaw_bins_{5};
+    int side_opening_bundle_pitch_bins_{3};
+    double side_opening_required_fraction_{0.7};
+    int side_opening_confirm_cycles_{3};
+    int side_opening_max_candidates_{1};
+    double side_opening_reuse_radius_m_{15.0};
     bool prefer_unknown_over_free_{true};
     double frontier_node_spacing_m_{6.0};
     int max_frontier_nodes_per_cycle_{3};
     bool create_side_frontier_nodes_{true};
+    double known_path_reject_radius_m_{4.0};
+    double frontier_cleanup_radius_m_{10.0};
     double event_cooldown_sec_{2.0};
 
     // Trajectory output
@@ -252,7 +281,14 @@ private: // HELPERS
     void upsertGraphEdge(int from_id, int to_id);
     bool hasGraphEdge(int from_id, int to_id) const;
     void queueEventInfo(const std::string &event_info, rclcpp::Time &last_event_time);
+    void publishDone(const std::string &info_code);
     std::optional<geometry_msgs::msg::Point> selectGoalPoint() const;
+    bool hasUnvisitedFrontiers() const;
+    std::optional<int> nearestUnvisitedFrontierNodeId(int start_node_id) const;
+    bool computeShortestPathNodeIds(int start_id, int goal_id, std::vector<int> &path_out) const;
+    bool startRouteToNode(int goal_node_id);
+    bool ensureReturnHomeNode();
+    void advanceRouteProgressIfReached();
     bool shouldReplanForGoal(const geometry_msgs::msg::Point &goal) const;
     bool computeLocalWaypointPath(const geometry_msgs::msg::Point &goal,
                                   std::vector<geometry_msgs::msg::Point> &path) const;

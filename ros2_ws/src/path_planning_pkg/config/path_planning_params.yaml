@@ -33,18 +33,32 @@ path_planner:
       transit_node_spacing_m: 10.0
       merge_radius_m: 3.0
       ahead_query_dist_m: 12.0
+      loop_connect_radius_m: 12.0
+      loop_connect_max_links: 3
+      route_node_reached_dist_m: 1.2
     explore:
       candidate_distance_m: 8.0
       candidate_half_fov_deg: 60.0
       candidate_bin_count: 7
       candidate_vertical_half_fov_deg: 30.0
       candidate_vertical_bin_count: 3
-      branch_min_free_candidates: 2
-      branch_count_unknown: true
+      branch_probe_distance_m: 60.0
+      side_opening_min_abs_yaw_deg: 80.0
+      side_opening_min_depth_m: 60.0
+      side_opening_bundle_half_yaw_deg: 10.0
+      side_opening_bundle_half_pitch_deg: 12.0
+      side_opening_bundle_yaw_bins: 5
+      side_opening_bundle_pitch_bins: 3
+      side_opening_required_fraction: 0.7
+      side_opening_confirm_cycles: 3
+      side_opening_max_candidates: 1
+      side_opening_reuse_radius_m: 15.0
       prefer_unknown_over_free: true
       frontier_node_spacing_m: 6.0
       max_frontier_nodes_per_cycle: 3
       create_side_frontier_nodes: true
+      known_path_reject_radius_m: 4.0
+      frontier_cleanup_radius_m: 10.0
       event_cooldown_sec: 2.0
     trajectory:
       publish_enabled: true
