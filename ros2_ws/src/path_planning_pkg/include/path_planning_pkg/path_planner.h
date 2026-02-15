@@ -75,6 +75,19 @@ private: // INTERNAL TYPES
         bool valid{true};
     };
 
+    enum class CandidateStatus : uint8_t {
+        FREE = 0,
+        BLOCKED = 1,
+        UNKNOWN = 2
+    };
+
+    struct CandidatePoint {
+        geometry_msgs::msg::Point point{};
+        double rel_yaw_deg{0.0};
+        double rel_pitch_deg{0.0};
+        CandidateStatus status{CandidateStatus::UNKNOWN};
+    };
+
 private: // STATE
     PlannerMode mode_{PlannerMode::IDLE};
     std::string statemachine_state_{"UNKNOWN"};
@@ -103,6 +116,11 @@ private: // STATE
     std::vector<GraphEdge> graph_edges_;
     int next_graph_node_id_{1};
     int last_transit_graph_node_id_{-1};
+    std::vector<CandidatePoint> latest_candidates_;
+    std::optional<std::size_t> selected_candidate_index_;
+    bool branch_detected_{false};
+    std::size_t free_candidate_count_{0};
+    std::size_t unknown_candidate_count_{0};
 
     std::string odom_frame_id_;
     std::string map_frame_id_;
@@ -111,6 +129,7 @@ private: // PUBS / SUBS / TIMER
     rclcpp::Publisher<statemachine_pkg::msg::Answer>::SharedPtr pub_heartbeat_;
     rclcpp::Publisher<mav_planning_msgs::msg::PolynomialTrajectory4D>::SharedPtr pub_trajectory_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_graph_markers_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_candidate_markers_;
 
     rclcpp::Subscription<statemachine_pkg::msg::Command>::SharedPtr sub_cmd_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_sm_state_;
@@ -128,11 +147,13 @@ private: // PARAMETERS
     std::string topic_octomap_;
     std::string topic_trajectory_;
     std::string topic_graph_markers_;
+    std::string topic_candidate_markers_;
 
     // Timing
     double loop_period_sec_{0.2};
     double heartbeat_period_sec_{1.0};
     double input_timeout_sec_{1.0};
+    double map_timeout_sec_{0.0};
     double command_stale_sec_{5.0};
 
     // Command handling
@@ -153,6 +174,16 @@ private: // PARAMETERS
     double graph_merge_radius_m_{3.0};
     double graph_ahead_query_dist_m_{12.0};
 
+    // Explore candidate generation
+    double candidate_distance_m_{8.0};
+    double candidate_half_fov_deg_{60.0};
+    int candidate_bin_count_{7};
+    double candidate_vertical_half_fov_deg_{30.0};
+    int candidate_vertical_bin_count_{3};
+    int branch_min_free_candidates_{2};
+    bool branch_count_unknown_{true};
+    bool prefer_unknown_over_free_{true};
+
 public: // LIFECYCLE
     PathPlanner();
     ~PathPlanner() override;
@@ -170,6 +201,8 @@ private: // HELPERS
     void tryRecordTransitNode();
     void publishHeartbeat();
     void publishGraphMarkers();
+    void updateBranchCandidates();
+    void publishCandidateMarkers();
     bool isTargetMatch(const std::string &target) const;
     bool isStaleCommand(const statemachine_pkg::msg::Command &msg) const;
     std::string heartbeatInfo() const;
@@ -184,7 +217,7 @@ private: // HELPERS
     bool isOccupied(const geometry_msgs::msg::Point &point) const;
     bool isUnknown(const geometry_msgs::msg::Point &point) const;
     bool raycast(const geometry_msgs::msg::Point &origin, const geometry_msgs::msg::Point &target,
-                 geometry_msgs::msg::Point &hit_out) const;
+                 geometry_msgs::msg::Point &hit_out, bool stop_on_unknown = true) const;
     double clearance(const geometry_msgs::msg::Point &point) const;
     std::optional<int> findNearestNodeId(const geometry_msgs::msg::Point &point, double radius_m) const;
     std::vector<int> findNearbyNodeIds(const geometry_msgs::msg::Point &point, double radius_m) const;
@@ -193,9 +226,11 @@ private: // HELPERS
     bool hasGraphEdge(int from_id, int to_id) const;
     GraphNode *findNodeById(int id);
     const GraphNode *findNodeById(int id) const;
+    static double yawFromQuaternion(double x, double y, double z, double w);
 
 private: // STRING HELPERS
     static std::string toString(PlannerMode mode);
     static std::string toHeartbeatInfo(PlannerMode mode);
     static std::string toString(GraphNodeStatus status);
+    static std::string toString(CandidateStatus status);
 };

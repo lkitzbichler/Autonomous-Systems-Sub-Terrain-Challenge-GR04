@@ -9,10 +9,12 @@ path_planner:
       map_topic: "octomap_binary"
       trajectory_topic: "trajectory"
       graph_markers_topic: "path_planner/graph_markers"
+      candidate_markers_topic: "path_planner/candidate_markers"
     time:
       loop_period_sec: 0.2
       heartbeat_period_sec: 1.0
       input_timeout_sec: 1.0
+      map_timeout_sec: 0.0
       command_stale_sec: 5.0
       heartbeat_on_mode_change: true
     commands:
@@ -29,3 +31,12 @@ path_planner:
       transit_node_spacing_m: 10.0
       merge_radius_m: 3.0
       ahead_query_dist_m: 12.0
+    explore:
+      candidate_distance_m: 8.0
+      candidate_half_fov_deg: 60.0
+      candidate_bin_count: 7
+      candidate_vertical_half_fov_deg: 30.0
+      candidate_vertical_bin_count: 3
+      branch_min_free_candidates: 2
+      branch_count_unknown: true
+      prefer_unknown_over_free: true

@@ -41,11 +41,14 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
     topic_trajectory_ = declare_parameter<std::string>("topics.trajectory_topic", "trajectory");
     topic_graph_markers_ =
         declare_parameter<std::string>("topics.graph_markers_topic", "path_planner/graph_markers");
+    topic_candidate_markers_ =
+        declare_parameter<std::string>("topics.candidate_markers_topic", "path_planner/candidate_markers");
 
     // Timing
     loop_period_sec_ = declare_parameter<double>("time.loop_period_sec", 0.2);
     heartbeat_period_sec_ = declare_parameter<double>("time.heartbeat_period_sec", 1.0);
     input_timeout_sec_ = declare_parameter<double>("time.input_timeout_sec", 1.0);
+    map_timeout_sec_ = declare_parameter<double>("time.map_timeout_sec", 0.0);
     command_stale_sec_ = declare_parameter<double>("time.command_stale_sec", 5.0);
     heartbeat_on_mode_change_ = declare_parameter<bool>("time.heartbeat_on_mode_change", true);
 
@@ -68,11 +71,24 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
     graph_merge_radius_m_ = declare_parameter<double>("graph.merge_radius_m", 3.0);
     graph_ahead_query_dist_m_ = declare_parameter<double>("graph.ahead_query_dist_m", 12.0);
 
+    // Explore candidate generation
+    candidate_distance_m_ = declare_parameter<double>("explore.candidate_distance_m", 8.0);
+    candidate_half_fov_deg_ = declare_parameter<double>("explore.candidate_half_fov_deg", 60.0);
+    candidate_bin_count_ = declare_parameter<int>("explore.candidate_bin_count", 7);
+    candidate_vertical_half_fov_deg_ =
+        declare_parameter<double>("explore.candidate_vertical_half_fov_deg", 30.0);
+    candidate_vertical_bin_count_ = declare_parameter<int>("explore.candidate_vertical_bin_count", 3);
+    branch_min_free_candidates_ = declare_parameter<int>("explore.branch_min_free_candidates", 2);
+    branch_count_unknown_ = declare_parameter<bool>("explore.branch_count_unknown", true);
+    prefer_unknown_over_free_ = declare_parameter<bool>("explore.prefer_unknown_over_free", true);
+
     // Publishers ###################################################################################
     pub_heartbeat_ = create_publisher<statemachine_pkg::msg::Answer>(topic_heartbeat_, 10);
     pub_trajectory_ =
         create_publisher<mav_planning_msgs::msg::PolynomialTrajectory4D>(topic_trajectory_, 10);
     pub_graph_markers_ = create_publisher<visualization_msgs::msg::MarkerArray>(topic_graph_markers_, 10);
+    pub_candidate_markers_ =
+        create_publisher<visualization_msgs::msg::MarkerArray>(topic_candidate_markers_, 10);
 
     // Subscribers ##################################################################################
     sub_cmd_ = create_subscription<statemachine_pkg::msg::Command>(
@@ -277,7 +293,11 @@ void PathPlanner::onTimer()
         last_heartbeat_time_ = now;
     }
 
-    // Step 3: Publish graph visualization for runtime inspection.
+    // Step 3: Update and publish branch candidates for RViz inspection.
+    updateBranchCandidates();
+    publishCandidateMarkers();
+
+    // Step 4: Publish graph visualization for runtime inspection.
     publishGraphMarkers();
 }
 
@@ -449,6 +469,225 @@ void PathPlanner::publishGraphMarkers()
     pub_graph_markers_->publish(array);
 }
 
+void PathPlanner::updateBranchCandidates()
+{
+    latest_candidates_.clear();
+    selected_candidate_index_.reset();
+    branch_detected_ = false;
+    free_candidate_count_ = 0;
+    unknown_candidate_count_ = 0;
+
+    // Candidate generation is only meaningful in planner-active modes.
+    const bool active_mode = (mode_ == PlannerMode::EXPLORE ||
+                              mode_ == PlannerMode::BACKTRACK ||
+                              mode_ == PlannerMode::RETURN_HOME ||
+                              mode_ == PlannerMode::TRANSIT_RECORD);
+    if (!active_mode || !hasValidOdom()) {
+        return;
+    }
+    const bool map_ok = hasValidMap();
+
+    const int requested_bins_yaw = std::max(1, candidate_bin_count_);
+    const int bins_yaw = (requested_bins_yaw % 2 == 0) ? requested_bins_yaw + 1 : requested_bins_yaw;
+    const int requested_bins_pitch = std::max(1, candidate_vertical_bin_count_);
+    const int bins_pitch =
+        (requested_bins_pitch % 2 == 0) ? requested_bins_pitch + 1 : requested_bins_pitch;
+    const double half_fov_yaw_deg = std::max(0.0, candidate_half_fov_deg_);
+    const double half_fov_pitch_deg = std::max(0.0, candidate_vertical_half_fov_deg_);
+    const double probe_dist_m = std::max(0.5, candidate_distance_m_);
+    constexpr double kDegToRad = 0.017453292519943295;
+
+    const auto &pose = latest_odom_.pose.pose;
+    const double yaw = yawFromQuaternion(
+        pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w);
+    const geometry_msgs::msg::Point origin = pose.position;
+
+    for (int ip = 0; ip < bins_pitch; ++ip) {
+        const double beta =
+            (bins_pitch == 1) ? 0.0 : (-1.0 + 2.0 * static_cast<double>(ip) / (bins_pitch - 1));
+        const double rel_pitch_deg = beta * half_fov_pitch_deg;
+        const double rel_pitch_rad = rel_pitch_deg * kDegToRad;
+
+        for (int iy = 0; iy < bins_yaw; ++iy) {
+            const double alpha =
+                (bins_yaw == 1) ? 0.0 : (-1.0 + 2.0 * static_cast<double>(iy) / (bins_yaw - 1));
+            const double rel_yaw_deg = alpha * half_fov_yaw_deg;
+            const double heading = yaw + rel_yaw_deg * kDegToRad;
+
+            geometry_msgs::msg::Point target;
+            target.x = origin.x + std::cos(rel_pitch_rad) * std::cos(heading) * probe_dist_m;
+            target.y = origin.y + std::cos(rel_pitch_rad) * std::sin(heading) * probe_dist_m;
+            target.z = origin.z + std::sin(rel_pitch_rad) * probe_dist_m;
+
+            geometry_msgs::msg::Point hit;
+            // For exploration candidates, unknown is allowed and visualized separately.
+            const bool blocked_los = raycast(origin, target, hit, false);
+
+            CandidatePoint candidate;
+            candidate.point = target;
+            candidate.rel_yaw_deg = rel_yaw_deg;
+            candidate.rel_pitch_deg = rel_pitch_deg;
+            if (!map_ok) {
+                candidate.status = CandidateStatus::UNKNOWN;
+            } else if (blocked_los || isOccupied(target)) {
+                candidate.status = CandidateStatus::BLOCKED;
+            } else if (isUnknown(target)) {
+                candidate.status = CandidateStatus::UNKNOWN;
+                ++unknown_candidate_count_;
+            } else if (isFree(target)) {
+                candidate.status = CandidateStatus::FREE;
+                ++free_candidate_count_;
+            } else {
+                candidate.status = CandidateStatus::BLOCKED;
+            }
+
+            latest_candidates_.push_back(candidate);
+        }
+    }
+
+    // Pick a preferred direction for upcoming policy steps:
+    // unknown can be prioritized over free (configurable).
+    int best_priority = -1;
+    double best_angle_cost = std::numeric_limits<double>::max();
+    for (std::size_t i = 0; i < latest_candidates_.size(); ++i) {
+        const auto &c = latest_candidates_[i];
+        int prio = 0;
+        if (c.status == CandidateStatus::UNKNOWN) {
+            prio = prefer_unknown_over_free_ ? 3 : 2;
+        } else if (c.status == CandidateStatus::FREE) {
+            prio = prefer_unknown_over_free_ ? 2 : 3;
+        } else {
+            prio = 1;
+        }
+
+        const double angle_cost = std::abs(c.rel_yaw_deg) + 0.7 * std::abs(c.rel_pitch_deg);
+        if (prio > best_priority ||
+            (prio == best_priority && angle_cost < best_angle_cost)) {
+            best_priority = prio;
+            best_angle_cost = angle_cost;
+            selected_candidate_index_ = i;
+        }
+    }
+
+    const std::size_t exploratory_count =
+        free_candidate_count_ + (branch_count_unknown_ ? unknown_candidate_count_ : 0U);
+    branch_detected_ = map_ok &&
+        (exploratory_count >= static_cast<std::size_t>(std::max(2, branch_min_free_candidates_)));
+    if (branch_detected_) {
+        RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
+                             "[branch] detected free=%zu unknown=%zu",
+                             free_candidate_count_, unknown_candidate_count_);
+    }
+}
+
+void PathPlanner::publishCandidateMarkers()
+{
+    if (!pub_candidate_markers_) {
+        return;
+    }
+
+    visualization_msgs::msg::MarkerArray array;
+    const auto now = this->now();
+
+    // Clear previous marker set to keep visualization stable across count changes.
+    visualization_msgs::msg::Marker clear;
+    clear.header.frame_id = planning_frame_;
+    clear.header.stamp = now;
+    clear.action = visualization_msgs::msg::Marker::DELETEALL;
+    array.markers.push_back(clear);
+
+    if (latest_candidates_.empty() || !hasValidOdom()) {
+        pub_candidate_markers_->publish(array);
+        return;
+    }
+
+    const auto origin = latest_odom_.pose.pose.position;
+
+    visualization_msgs::msg::Marker free_points;
+    free_points.header.frame_id = planning_frame_;
+    free_points.header.stamp = now;
+    free_points.ns = "candidate_points";
+    free_points.id = 1;
+    free_points.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+    free_points.action = visualization_msgs::msg::Marker::ADD;
+    free_points.scale.x = 0.35;
+    free_points.scale.y = 0.35;
+    free_points.scale.z = 0.35;
+    free_points.color.r = 0.10F;
+    free_points.color.g = 0.90F;
+    free_points.color.b = 0.20F;
+    free_points.color.a = 0.95F;
+
+    visualization_msgs::msg::Marker blocked_points = free_points;
+    blocked_points.id = 2;
+    blocked_points.color.r = 0.95F;
+    blocked_points.color.g = 0.20F;
+    blocked_points.color.b = 0.20F;
+
+    visualization_msgs::msg::Marker unknown_points = free_points;
+    unknown_points.id = 3;
+    unknown_points.color.r = 0.95F;
+    unknown_points.color.g = 0.80F;
+    unknown_points.color.b = 0.10F;
+
+    visualization_msgs::msg::Marker rays;
+    rays.header.frame_id = planning_frame_;
+    rays.header.stamp = now;
+    rays.ns = "candidate_rays";
+    rays.id = 4;
+    rays.type = visualization_msgs::msg::Marker::LINE_LIST;
+    rays.action = visualization_msgs::msg::Marker::ADD;
+    rays.scale.x = 0.05;
+    rays.color.r = 0.85F;
+    rays.color.g = 0.85F;
+    rays.color.b = 0.85F;
+    rays.color.a = 0.85F;
+
+    visualization_msgs::msg::Marker selected;
+    selected.header.frame_id = planning_frame_;
+    selected.header.stamp = now;
+    selected.ns = "candidate_selected";
+    selected.id = 5;
+    selected.type = visualization_msgs::msg::Marker::SPHERE;
+    selected.action = visualization_msgs::msg::Marker::ADD;
+    selected.scale.x = 0.55;
+    selected.scale.y = 0.55;
+    selected.scale.z = 0.55;
+    selected.color.r = 1.00F;
+    selected.color.g = 0.00F;
+    selected.color.b = 1.00F;
+    selected.color.a = 1.00F;
+
+    for (const auto &candidate : latest_candidates_) {
+        switch (candidate.status) {
+        case CandidateStatus::FREE:
+            free_points.points.push_back(candidate.point);
+            break;
+        case CandidateStatus::BLOCKED:
+            blocked_points.points.push_back(candidate.point);
+            break;
+        case CandidateStatus::UNKNOWN:
+            unknown_points.points.push_back(candidate.point);
+            break;
+        }
+
+        rays.points.push_back(origin);
+        rays.points.push_back(candidate.point);
+    }
+
+    array.markers.push_back(free_points);
+    array.markers.push_back(blocked_points);
+    array.markers.push_back(unknown_points);
+    array.markers.push_back(rays);
+    if (selected_candidate_index_.has_value() &&
+        *selected_candidate_index_ < latest_candidates_.size()) {
+        selected.pose.position = latest_candidates_[*selected_candidate_index_].point;
+        selected.pose.orientation.w = 1.0;
+        array.markers.push_back(selected);
+    }
+    pub_candidate_markers_->publish(array);
+}
+
 bool PathPlanner::isTargetMatch(const std::string &target) const
 {
     if (target.empty()) {
@@ -546,7 +785,21 @@ bool PathPlanner::hasValidOdom() const
 
 bool PathPlanner::hasValidMap() const
 {
-    return has_map_ && map_frame_ok_ && static_cast<bool>(octree_) && isFresh(last_map_time_);
+    if (!(has_map_ && map_frame_ok_ && static_cast<bool>(octree_))) {
+        return false;
+    }
+
+    // Octomap updates can be sparse; map freshness check is optional by parameter.
+    if (map_timeout_sec_ <= 0.0) {
+        return true;
+    }
+
+    if (last_map_time_.nanoseconds() == 0) {
+        return false;
+    }
+
+    const double age_sec = (this->now() - last_map_time_).seconds();
+    return age_sec <= map_timeout_sec_;
 }
 
 bool PathPlanner::hasValidPlanningInputs() const
@@ -631,7 +884,7 @@ bool PathPlanner::isFree(const geometry_msgs::msg::Point &point) const
 }
 
 bool PathPlanner::raycast(const geometry_msgs::msg::Point &origin, const geometry_msgs::msg::Point &target,
-                          geometry_msgs::msg::Point &hit_out) const
+                          geometry_msgs::msg::Point &hit_out, bool stop_on_unknown) const
 {
     if (!hasValidMap()) {
         return false;
@@ -656,7 +909,7 @@ bool PathPlanner::raycast(const geometry_msgs::msg::Point &origin, const geometr
         p.y = origin.y + uy * s;
         p.z = origin.z + uz * s;
 
-        if (isOccupied(p) || isUnknown(p)) {
+        if (isOccupied(p) || (stop_on_unknown && isUnknown(p))) {
             hit_out = p;
             return true;
         }
@@ -872,6 +1125,13 @@ const PathPlanner::GraphNode *PathPlanner::findNodeById(int id) const
     return nullptr;
 }
 
+double PathPlanner::yawFromQuaternion(double x, double y, double z, double w)
+{
+    const double siny_cosp = 2.0 * (w * z + x * y);
+    const double cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
+    return std::atan2(siny_cosp, cosy_cosp);
+}
+
 // #################################################################################################
 // String Helpers
 // #################################################################################################
@@ -929,6 +1189,19 @@ std::string PathPlanner::toString(GraphNodeStatus status)
         return "FRONTIER";
     case GraphNodeStatus::DEAD_END:
         return "DEAD_END";
+    }
+    return "UNKNOWN";
+}
+
+std::string PathPlanner::toString(CandidateStatus status)
+{
+    switch (status) {
+    case CandidateStatus::FREE:
+        return "FREE";
+    case CandidateStatus::BLOCKED:
+        return "BLOCKED";
+    case CandidateStatus::UNKNOWN:
+        return "UNKNOWN";
     }
     return "UNKNOWN";
 }

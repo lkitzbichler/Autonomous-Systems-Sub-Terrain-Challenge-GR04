@@ -70,6 +70,7 @@ Out of scope of this step:
 
 3. Debug topics (planned, optional in later steps)
 - `path_planner/graph_markers` (`visualization_msgs/msg/MarkerArray`)
+- `path_planner/candidate_markers` (`visualization_msgs/msg/MarkerArray`)
 - `path_planner/frontier_markers` (`visualization_msgs/msg/MarkerArray`)
 - `path_planner/current_plan` (`nav_msgs/msg/Path`)
 - `path_planner/stats` (custom or string-based status topic)
@@ -197,6 +198,7 @@ All runtime behavior must be tunable by ROS parameters. Planned keys:
 
 - `time.heartbeat_period_sec` (default: `1.0`)
 - `time.input_timeout_sec` (default: `1.0`)
+- `time.map_timeout_sec` (default: `0.0`, disabled)
 - `time.replan_period_sec` (default: `0.5`)
 
 - `frames.planning_frame` (default: `world`)
