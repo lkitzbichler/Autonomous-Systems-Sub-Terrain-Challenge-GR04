@@ -11,6 +11,6 @@ planner:
                 -150.0, 10.0, 23.0,  # comment out for parameter tuning
                 -200.0, 10.0, 25.0,  # comment out for parameter tuning
                 -250.0, 10.0, 19.0,  # comment out for parameter tuning
-                -320.0, 9.0, 16.0]  # comment out for parameter tuning
+                -325.0, 9.0, 16.0]  # comment out for parameter tuning
     
     stop_index: -1

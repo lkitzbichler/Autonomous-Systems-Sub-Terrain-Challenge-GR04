@@ -11,6 +11,7 @@ find_package(statemachine_pkg REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(octomap REQUIRED)
 find_package(octomap_msgs REQUIRED)
 find_package(mav_planning_msgs REQUIRED)
@@ -24,6 +25,7 @@ ament_target_dependencies(pathplanner_node
   nav_msgs
   geometry_msgs
   visualization_msgs
+  sensor_msgs
   octomap
   octomap_msgs
   mav_planning_msgs

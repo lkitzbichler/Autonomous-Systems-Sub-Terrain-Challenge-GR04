@@ -23,7 +23,7 @@ state_machine_node:
       lantern_merge_dist_m: 1.5
     checkpoints:
       positions:
-        [-320.0, 9.0, 16.0]
+        [-325.0, 9.0, 16.0]
       reach_dist_m: 0.5
     landing:
       xy_radius_m: 0.5
