@@ -74,6 +74,18 @@ Out of scope of this step:
 - `path_planner/current_plan` (`nav_msgs/msg/Path`)
 - `path_planner/stats` (custom or string-based status topic)
 
+### 2.3 Internal Map Query API (planner-internal)
+
+The planner provides a reusable map adapter interface:
+
+- `is_free(p)`
+- `is_occupied(p)`
+- `is_unknown(p)`
+- `raycast(origin, target)`
+- `clearance(p)`
+
+These checks run in planning frame coordinates and apply safety inflation.
+
 ## 3. Event and Status Mapping (without new messages)
 
 Until dedicated planner event messages exist, planner events are encoded via
@@ -168,6 +180,8 @@ All runtime behavior must be tunable by ROS parameters. Planned keys:
 - `time.input_timeout_sec` (default: `1.0`)
 - `time.replan_period_sec` (default: `0.5`)
 
+- `frames.planning_frame` (default: `world`)
+
 - `graph.node_spacing_m` (default: `10.0`)
 - `graph.transit_node_spacing_m` (default: `10.0`)
 - `graph.merge_radius_m` (default: `3.0`)
@@ -175,6 +189,8 @@ All runtime behavior must be tunable by ROS parameters. Planned keys:
 
 - `safety.inflation_m` (default: `1.0`)
 - `safety.min_clearance_m` (default: `1.5`)
+- `safety.clearance_step_m` (default: `0.5`)
+- `safety.clearance_search_max_m` (default: `8.0`)
 - `safety.max_vertical_step_m` (default: `2.0`)
 
 - `explore.branch_min_len_m` (default: `6.0`)

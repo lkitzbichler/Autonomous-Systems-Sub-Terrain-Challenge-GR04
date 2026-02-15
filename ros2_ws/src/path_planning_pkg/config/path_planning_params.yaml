@@ -11,10 +11,18 @@ path_planner:
     time:
       loop_period_sec: 0.2
       heartbeat_period_sec: 1.0
+      input_timeout_sec: 1.0
       command_stale_sec: 5.0
       heartbeat_on_mode_change: true
     commands:
       accept_empty_target: false
       accept_switch_to_explore_cmd: true
+    frames:
+      planning_frame: "world"
+    safety:
+      inflation_m: 1.0
+      min_clearance_m: 1.5
+      clearance_step_m: 0.5
+      clearance_search_max_m: 8.0
     graph:
       transit_node_spacing_m: 10.0

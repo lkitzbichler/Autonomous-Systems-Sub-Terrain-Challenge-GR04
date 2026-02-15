@@ -12,8 +12,14 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include <memory>
 #include <string>
 #include <vector>
+
+namespace octomap
+{
+class OcTree;
+}
 
 class PathPlanner : public rclcpp::Node
 {
@@ -46,17 +52,25 @@ private: // STATE
     bool has_map_{false};
     bool transit_record_enabled_{false};
     bool heartbeat_on_mode_change_{true};
+    bool odom_frame_ok_{false};
+    bool map_frame_ok_{false};
 
     rclcpp::Time last_heartbeat_time_{0, 0, RCL_ROS_TIME};
     rclcpp::Time last_command_stamp_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_odom_time_{0, 0, RCL_ROS_TIME};
+    rclcpp::Time last_map_time_{0, 0, RCL_ROS_TIME};
 
     Commands last_command_{Commands::NONE};
     uint64_t processed_command_count_{0};
     uint64_t ignored_command_count_{0};
 
     nav_msgs::msg::Odometry latest_odom_{};
+    std::shared_ptr<octomap::OcTree> octree_;
     std::vector<TransitNode> transit_nodes_;
     int next_transit_node_id_{1};
+
+    std::string odom_frame_id_;
+    std::string map_frame_id_;
 
 private: // PUBS / SUBS / TIMER
     rclcpp::Publisher<statemachine_pkg::msg::Answer>::SharedPtr pub_heartbeat_;
@@ -81,11 +95,21 @@ private: // PARAMETERS
     // Timing
     double loop_period_sec_{0.2};
     double heartbeat_period_sec_{1.0};
+    double input_timeout_sec_{1.0};
     double command_stale_sec_{5.0};
 
     // Command handling
     bool accept_empty_target_{false};
     bool accept_switch_to_explore_cmd_{true};
+
+    // Frames
+    std::string planning_frame_{"world"};
+
+    // Safety
+    double inflation_m_{1.0};
+    double min_clearance_m_{1.5};
+    double clearance_step_m_{0.5};
+    double clearance_search_max_m_{8.0};
 
     // Graph recording
     double transit_node_spacing_m_{10.0};
@@ -109,6 +133,19 @@ private: // HELPERS
     bool isTargetMatch(const std::string &target) const;
     bool isStaleCommand(const statemachine_pkg::msg::Command &msg) const;
     std::string heartbeatInfo() const;
+    bool isPlanningFrame(const std::string &frame_id) const;
+    bool isFresh(const rclcpp::Time &stamp) const;
+    bool hasValidOdom() const;
+    bool hasValidMap() const;
+    bool hasValidPlanningInputs() const;
+    bool canPublishPlannerOutput() const;
+
+    bool isFree(const geometry_msgs::msg::Point &point) const;
+    bool isOccupied(const geometry_msgs::msg::Point &point) const;
+    bool isUnknown(const geometry_msgs::msg::Point &point) const;
+    bool raycast(const geometry_msgs::msg::Point &origin, const geometry_msgs::msg::Point &target,
+                 geometry_msgs::msg::Point &hit_out) const;
+    double clearance(const geometry_msgs::msg::Point &point) const;
 
 private: // STRING HELPERS
     static std::string toString(PlannerMode mode);

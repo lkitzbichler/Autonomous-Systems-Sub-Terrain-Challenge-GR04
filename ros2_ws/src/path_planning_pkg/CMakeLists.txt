@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(octomap REQUIRED)
 find_package(octomap_msgs REQUIRED)
 find_package(mav_planning_msgs REQUIRED)
 find_package(statemachine_pkg REQUIRED)
@@ -20,6 +21,7 @@ target_include_directories(pathplanner_node
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
+    ${OCTOMAP_INCLUDE_DIRS}
 )
 
 ament_target_dependencies(pathplanner_node
@@ -29,6 +31,10 @@ ament_target_dependencies(pathplanner_node
   octomap_msgs
   mav_planning_msgs
   statemachine_pkg
+)
+
+target_link_libraries(pathplanner_node
+  ${OCTOMAP_LIBRARIES}
 )
 
 if(BUILD_TESTING)
