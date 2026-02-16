@@ -110,6 +110,12 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
     known_path_reject_radius_m_ = declare_parameter<double>("explore.known_path_reject_radius_m", 4.0);
     frontier_cleanup_radius_m_ = declare_parameter<double>("explore.frontier_cleanup_radius_m", 10.0);
     event_cooldown_sec_ = declare_parameter<double>("explore.event_cooldown_sec", 2.0);
+    loop_closure_min_node_age_sec_ =
+        declare_parameter<double>("explore.loop_closure_min_node_age_sec", 2.0);
+    loop_closure_soft_confirm_cycles_ =
+        declare_parameter<int>("explore.loop_closure_soft_confirm_cycles", 2);
+    loop_closure_soft_min_hops_ =
+        declare_parameter<int>("explore.loop_closure_soft_min_hops", 4);
 
     // Trajectory output
     trajectory_publish_enabled_ =
@@ -370,6 +376,11 @@ void PathPlanner::changeMode(PlannerMode new_mode, const std::string &reason)
         has_frontier_seed_position_ = false;
         last_branch_detected_ = false;
         force_graph_replan_after_loop_ = false;
+        soft_loop_candidate_node_id_ = -1;
+        soft_loop_candidate_streak_ = 0;
+    }
+    if (mode_ != PlannerMode::BACKTRACK) {
+        active_backtrack_goal_node_id_ = -1;
     }
 
     if (mode_ == PlannerMode::EXPLORE) {
@@ -732,7 +743,10 @@ void PathPlanner::updateBranchCandidates()
     struct SideBundleResult {
         bool detected{false};
         double mean_depth_m{0.0};
+        double pass_fraction{0.0};
+        double best_rel_yaw_deg{0.0};
         double best_pitch_deg{0.0};
+        double best_open_depth_m{0.0};
     };
 
     auto evaluateSideBundle = [&](double side_sign) {
@@ -755,11 +769,13 @@ void PathPlanner::updateBranchCandidates()
         const double min_side_abs_yaw = std::max(0.0, side_opening_min_abs_yaw_deg_);
         const double min_open_depth = std::max(0.1, side_opening_min_depth_m_);
         const double required_fraction = std::clamp(side_opening_required_fraction_, 0.0, 1.0);
+        const double weak_fraction = std::clamp(required_fraction * 0.85, 0.0, 1.0);
 
         int sample_count = 0;
         int pass_count = 0;
         double depth_sum = 0.0;
         double best_depth = -1.0;
+        double best_rel_yaw_deg = 0.0;
         double best_pitch_deg = 0.0;
 
         for (int ip = 0; ip < pitch_bins; ++ip) {
@@ -790,6 +806,7 @@ void PathPlanner::updateBranchCandidates()
                 depth_sum += open_depth;
                 if (open_depth > best_depth) {
                     best_depth = open_depth;
+                    best_rel_yaw_deg = rel_yaw_deg;
                     best_pitch_deg = rel_pitch_deg;
                 }
                 if (open_depth >= min_open_depth) {
@@ -803,29 +820,59 @@ void PathPlanner::updateBranchCandidates()
         }
 
         const double pass_fraction = static_cast<double>(pass_count) / static_cast<double>(sample_count);
-        if (pass_fraction >= required_fraction) {
+        result.mean_depth_m = depth_sum / static_cast<double>(sample_count);
+        result.pass_fraction = pass_fraction;
+        const double weak_depth_threshold =
+            std::max(0.1, min_open_depth - std::max(1.0, 0.1 * min_open_depth));
+        const bool strong_detect = (pass_fraction >= required_fraction);
+        const bool weak_detect =
+            (pass_fraction >= weak_fraction &&
+             best_depth >= weak_depth_threshold);
+        if (strong_detect || weak_detect) {
             result.detected = true;
-            result.mean_depth_m = depth_sum / static_cast<double>(sample_count);
+            result.best_rel_yaw_deg = best_rel_yaw_deg;
             result.best_pitch_deg = best_pitch_deg;
+            result.best_open_depth_m = std::max(0.0, best_depth);
         }
         return result;
     };
 
     const auto left_bundle = evaluateSideBundle(-1.0);
     const auto right_bundle = evaluateSideBundle(1.0);
-    side_opening_left_streak_ = left_bundle.detected ? (side_opening_left_streak_ + 1) : 0;
-    side_opening_right_streak_ = right_bundle.detected ? (side_opening_right_streak_ + 1) : 0;
+    side_opening_left_streak_ = left_bundle.detected
+        ? (side_opening_left_streak_ + 1)
+        : std::max(0, side_opening_left_streak_ - 1);
+    side_opening_right_streak_ = right_bundle.detected
+        ? (side_opening_right_streak_ + 1)
+        : std::max(0, side_opening_right_streak_ - 1);
 
-    auto makeSideTarget = [&](double side_sign, double rel_pitch_deg) {
-        geometry_msgs::msg::Point target;
-        const double rel_yaw_deg = side_sign * 90.0;
+    auto makeSideTarget = [&](double rel_yaw_deg, double rel_pitch_deg, double open_depth_m)
+        -> std::optional<geometry_msgs::msg::Point> {
         const double rel_pitch_rad = rel_pitch_deg * kDegToRad;
         const double heading = yaw + rel_yaw_deg * kDegToRad;
-        const double branch_step = std::max(0.5, candidate_distance_m_);
-        target.x = origin.x + std::cos(rel_pitch_rad) * std::cos(heading) * branch_step;
-        target.y = origin.y + std::cos(rel_pitch_rad) * std::sin(heading) * branch_step;
-        target.z = origin.z + std::sin(rel_pitch_rad) * branch_step;
-        return target;
+        const double dir_xy = std::cos(rel_pitch_rad);
+        const double dir_z = std::sin(rel_pitch_rad);
+        const double dir_x = dir_xy * std::cos(heading);
+        const double dir_y = dir_xy * std::sin(heading);
+
+        const double max_step = std::max(0.5, candidate_distance_m_);
+        const double safety_margin = std::clamp(min_clearance_m_, 0.5, 2.0);
+        double candidate_dist = max_step;
+        if (std::isfinite(open_depth_m) && open_depth_m > 0.0) {
+            candidate_dist = std::min(max_step, std::max(0.5, open_depth_m - safety_margin));
+        }
+
+        const double backoff_step = std::max(0.25, std::min(1.0, max_step * 0.1));
+        for (double dist = candidate_dist; dist >= 0.5; dist -= backoff_step) {
+            geometry_msgs::msg::Point target;
+            target.x = origin.x + dir_x * dist;
+            target.y = origin.y + dir_y * dist;
+            target.z = origin.z + dir_z * dist;
+            if (!isOccupied(target)) {
+                return target;
+            }
+        }
+        return std::nullopt;
     };
 
     struct StableSideCandidate {
@@ -835,10 +882,18 @@ void PathPlanner::updateBranchCandidates()
     std::vector<StableSideCandidate> stable_sides;
     const int confirm_cycles = std::max(1, side_opening_confirm_cycles_);
     if (left_bundle.detected && side_opening_left_streak_ >= confirm_cycles) {
-        stable_sides.push_back({makeSideTarget(-1.0, left_bundle.best_pitch_deg), left_bundle.mean_depth_m});
+        const auto target = makeSideTarget(
+            left_bundle.best_rel_yaw_deg, left_bundle.best_pitch_deg, left_bundle.best_open_depth_m);
+        if (target.has_value()) {
+            stable_sides.push_back({*target, left_bundle.mean_depth_m});
+        }
     }
     if (right_bundle.detected && side_opening_right_streak_ >= confirm_cycles) {
-        stable_sides.push_back({makeSideTarget(1.0, right_bundle.best_pitch_deg), right_bundle.mean_depth_m});
+        const auto target = makeSideTarget(
+            right_bundle.best_rel_yaw_deg, right_bundle.best_pitch_deg, right_bundle.best_open_depth_m);
+        if (target.has_value()) {
+            stable_sides.push_back({*target, right_bundle.mean_depth_m});
+        }
     }
 
     std::stable_sort(stable_sides.begin(), stable_sides.end(),
@@ -853,11 +908,13 @@ void PathPlanner::updateBranchCandidates()
             continue;
         }
         bool known_path = false;
-        if (known_path_reject_radius_m_ > 0.0) {
-            const auto nearest = findNearestNodeId(candidate.target, known_path_reject_radius_m_);
+        const double side_known_path_radius =
+            std::max(0.0, std::min(1.0, known_path_reject_radius_m_ * 0.25));
+        if (side_known_path_radius > 0.0) {
+            const auto nearest = findNearestNodeId(candidate.target, side_known_path_radius);
             if (nearest.has_value()) {
                 const auto *node = findNodeById(*nearest);
-                if (node && node->valid && (node->is_transit || node->status == GraphNodeStatus::VISITED)) {
+                if (node && node->valid && node->is_transit) {
                     known_path = true;
                 }
             }
@@ -909,7 +966,75 @@ void PathPlanner::updateExploreGraphFromCandidates()
     if (!anchor) {
         return;
     }
-    previous_anchor_node_id_ = current_anchor_node_id_;
+    normalizePendingHoleQueue();
+    const GraphNodeStatus anchor_prev_status = anchor->status;
+    const int last_anchor_id = current_anchor_node_id_;
+    const bool had_prev_edge = (last_anchor_id > 0) && hasGraphEdge(last_anchor_id, anchor_id);
+    auto isRecentAnchorNode = [&](int node_id) {
+        return std::find(recent_anchor_node_ids_.begin(), recent_anchor_node_ids_.end(), node_id) !=
+               recent_anchor_node_ids_.end();
+    };
+    auto rememberAnchorNode = [&](int node_id) {
+        if (node_id <= 0) {
+            return;
+        }
+        if (!recent_anchor_node_ids_.empty() && recent_anchor_node_ids_.back() == node_id) {
+            return;
+        }
+        constexpr std::size_t kRecentAnchorWindow = 4;
+        recent_anchor_node_ids_.push_back(node_id);
+        while (recent_anchor_node_ids_.size() > kRecentAnchorWindow) {
+            recent_anchor_node_ids_.pop_front();
+        }
+    };
+    const int soft_confirm_cycles = std::max(1, loop_closure_soft_confirm_cycles_);
+    const int soft_min_hops = std::max(2, loop_closure_soft_min_hops_);
+    const double loop_overlap_radius = std::max(0.5, graph_merge_radius_m_);
+    int soft_loop_candidate_node_id = -1;
+    int soft_loop_candidate_hops = -1;
+    auto getPreexistingRouteHops = [&](int from_id, int to_id, int &hops_out) {
+        hops_out = -1;
+        if (from_id <= 0 || to_id <= 0 || from_id == to_id) {
+            return false;
+        }
+        std::vector<int> path;
+        if (!computeShortestPathNodeIds(from_id, to_id, path)) {
+            return false;
+        }
+        hops_out = std::max(0, static_cast<int>(path.size()) - 1);
+        return true;
+    };
+    auto considerSoftLoopCandidate = [&](int to_id, int hops) {
+        if (mode_ != PlannerMode::EXPLORE || to_id <= 0) {
+            return;
+        }
+        if (hops > soft_loop_candidate_hops ||
+            (hops == soft_loop_candidate_hops &&
+             (soft_loop_candidate_node_id <= 0 || to_id < soft_loop_candidate_node_id))) {
+            soft_loop_candidate_node_id = to_id;
+            soft_loop_candidate_hops = hops;
+        }
+    };
+
+    bool strong_loop_closed = false;
+    std::string strong_loop_reason;
+    const bool anchor_reused = (!inserted_anchor && anchor_id != last_anchor_id);
+    const bool anchor_known_old =
+        anchor->is_transit ||
+        anchor_prev_status == GraphNodeStatus::VISITED ||
+        anchor_prev_status == GraphNodeStatus::DEAD_END;
+    const bool anchor_recent = isRecentAnchorNode(anchor_id);
+    if (anchor_reused && anchor_known_old && !anchor_recent) {
+        int anchor_hops = -1;
+        const bool anchor_has_old_route = getPreexistingRouteHops(last_anchor_id, anchor_id, anchor_hops);
+        strong_loop_closed = true;
+        strong_loop_reason = "anchor revisit merge";
+        RCLCPP_INFO(this->get_logger(),
+                    "[loop] anchor revisit evidence anchor=%d hops=%d prev_edge=%s preexisting_route=%s",
+                    anchor_id, anchor_hops, had_prev_edge ? "true" : "false",
+                    anchor_has_old_route ? "true" : "false");
+    }
+    previous_anchor_node_id_ = last_anchor_id;
     current_anchor_node_id_ = anchor_id;
     anchor->status = GraphNodeStatus::VISITED;
     anchor->yaw = yaw;
@@ -917,6 +1042,11 @@ void PathPlanner::updateExploreGraphFromCandidates()
     anchor->valid = true;
 
     bool loop_closed = false;
+
+    // Keep graph connectivity coherent along the actual flown path.
+    if (previous_anchor_node_id_ > 0 && previous_anchor_node_id_ != anchor_id) {
+        upsertGraphEdge(previous_anchor_node_id_, anchor_id);
+    }
 
     // Try to explicitly connect to already-visited graph in a wider radius.
     const double connect_radius = std::max(graph_merge_radius_m_, graph_loop_connect_radius_m_);
@@ -947,26 +1077,83 @@ void PathPlanner::updateExploreGraphFromCandidates()
         }
 
         const bool had_edge = hasGraphEdge(anchor_id, node_id);
-        upsertGraphEdge(anchor_id, node_id);
         if (!had_edge) {
-            loop_closed = true;
             ++links_added;
+        }
+        if (!had_edge) {
+            const bool known_old =
+                node->is_transit ||
+                node->status == GraphNodeStatus::VISITED ||
+                node->status == GraphNodeStatus::DEAD_END;
+            const bool node_recent = isRecentAnchorNode(node_id);
+            if (known_old && !node_recent) {
+                int route_hops = -1;
+                const bool has_old_route = getPreexistingRouteHops(anchor_id, node_id, route_hops);
+                if (!has_old_route &&
+                    (node->is_transit || distance3(node->position, origin) <= loop_overlap_radius)) {
+                    strong_loop_closed = true;
+                    if (strong_loop_reason.empty()) {
+                        strong_loop_reason = "new edge to old node without preexisting route";
+                    }
+                } else if ((node->status == GraphNodeStatus::VISITED ||
+                            node->status == GraphNodeStatus::DEAD_END) &&
+                           route_hops >= soft_min_hops) {
+                    considerSoftLoopCandidate(node_id, route_hops);
+                }
+            }
+        }
+        upsertGraphEdge(anchor_id, node_id);
+    }
+
+    if (strong_loop_closed) {
+        loop_closed = true;
+        soft_loop_candidate_node_id_ = -1;
+        soft_loop_candidate_streak_ = 0;
+    } else if (soft_loop_candidate_node_id > 0) {
+        if (soft_loop_candidate_node_id_ == soft_loop_candidate_node_id) {
+            ++soft_loop_candidate_streak_;
+        } else {
+            soft_loop_candidate_node_id_ = soft_loop_candidate_node_id;
+            soft_loop_candidate_streak_ = 1;
+        }
+        if (soft_loop_candidate_streak_ >= soft_confirm_cycles) {
+            loop_closed = true;
+            soft_loop_candidate_node_id_ = -1;
+            soft_loop_candidate_streak_ = 0;
+        }
+    } else {
+        soft_loop_candidate_node_id_ = -1;
+        soft_loop_candidate_streak_ = 0;
+    }
+
+    if (loop_closed) {
+        if (strong_loop_closed) {
+            RCLCPP_INFO(this->get_logger(),
+                        "[loop] closure confirmed (%s) anchor=%d",
+                        strong_loop_reason.empty() ? "strong" : strong_loop_reason.c_str(),
+                        anchor_id);
+        } else {
+            RCLCPP_INFO(this->get_logger(),
+                        "[loop] closure confirmed (soft evidence) anchor=%d",
+                        anchor_id);
         }
     }
 
     // During BACKTRACK / RETURN_HOME we only maintain anchor + loop connections.
     if (mode_ != PlannerMode::EXPLORE) {
-        if (loop_closed) {
-            force_graph_replan_after_loop_ = true;
-            queueEventInfo("EVENT_LOOP_CLOSED", last_loop_event_time_);
-        }
+        rememberAnchorNode(anchor_id);
         return;
     }
+
+    const bool has_side_targets =
+        create_side_frontier_nodes_ && branch_detected_ && !side_opening_targets_.empty();
 
     // Apply placement hysteresis to avoid node flood while hovering.
     const double min_seed_spacing = std::max(0.2, frontier_node_spacing_m_);
     if (has_frontier_seed_position_ &&
-        distance3(last_frontier_seed_position_, origin) < min_seed_spacing) {
+        distance3(last_frontier_seed_position_, origin) < min_seed_spacing &&
+        !has_side_targets) {
+        rememberAnchorNode(anchor_id);
         return;
     }
 
@@ -980,7 +1167,8 @@ void PathPlanner::updateExploreGraphFromCandidates()
             exploratory_indices.push_back(i);
         }
     }
-    if (exploratory_indices.empty()) {
+    if (exploratory_indices.empty() && !has_side_targets) {
+        rememberAnchorNode(anchor_id);
         return;
     }
 
@@ -1011,8 +1199,7 @@ void PathPlanner::updateExploreGraphFromCandidates()
         return lhs < rhs;
     });
 
-    const bool allow_side_nodes =
-        create_side_frontier_nodes_ && branch_detected_ && !side_opening_targets_.empty();
+    const bool allow_side_nodes = has_side_targets;
     const int max_nodes = std::max(1, max_frontier_nodes_per_cycle_);
     const int limit = allow_side_nodes ? max_nodes : 1;
     std::vector<std::size_t> chosen;
@@ -1040,7 +1227,8 @@ void PathPlanner::updateExploreGraphFromCandidates()
     int side_nodes_added = 0;
     if (allow_side_nodes) {
         const int side_budget = std::max(0, limit - static_cast<int>(chosen.size()));
-        const double reuse_radius = std::max(0.0, side_opening_reuse_radius_m_);
+        const double reuse_radius = std::max(
+            0.0, std::min(side_opening_reuse_radius_m_, std::max(2.0, frontier_node_spacing_m_)));
         for (const auto &raw_side_target : side_opening_targets_) {
             if (side_nodes_added >= side_budget) {
                 break;
@@ -1074,6 +1262,17 @@ void PathPlanner::updateExploreGraphFromCandidates()
             side_node->yaw = yaw;
             side_node->stamp = now;
             side_node->valid = true;
+            const auto *pending_hole_node = findNodeById(pending_hole_node_id_);
+            if (pending_hole_node_id_ <= 0 || !pending_hole_node || !pending_hole_node->valid) {
+                pending_hole_node_id_ = side_node_id;
+            } else if (side_node_id != pending_hole_node_id_ &&
+                       std::find(queued_hole_node_ids_.begin(), queued_hole_node_ids_.end(), side_node_id) ==
+                           queued_hole_node_ids_.end()) {
+                queued_hole_node_ids_.push_back(side_node_id);
+            }
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                                 "[hole] stored marker node=%d pending=%d queued=%zu",
+                                 side_node_id, pending_hole_node_id_, queued_hole_node_ids_.size());
 
             // Collapse nearby duplicate side-frontier nodes into one stable target.
             if (reuse_radius > 1e-6) {
@@ -1097,11 +1296,7 @@ void PathPlanner::updateExploreGraphFromCandidates()
             }
             chosen_node_ids.push_back(side_node_id);
 
-            const bool had_edge = hasGraphEdge(anchor_id, side_node_id);
             upsertGraphEdge(anchor_id, side_node_id);
-            if (!inserted_new && !had_edge) {
-                loop_closed = true;
-            }
             ++side_nodes_added;
         }
     }
@@ -1154,17 +1349,17 @@ void PathPlanner::updateExploreGraphFromCandidates()
             continue;
         }
 
-        const bool had_edge = hasGraphEdge(anchor_id, node_id);
         upsertGraphEdge(anchor_id, node_id);
-        if (!inserted_new && !had_edge) {
-            loop_closed = true;
-        }
     }
 
     // Mark stale local alternatives as dead-end instead of deleting graph topology.
     const double cleanup_radius = std::max(1.0, frontier_cleanup_radius_m_);
     for (auto &node : graph_nodes_) {
-        if (!node.valid || node.is_transit || node.id == anchor_id) {
+        const bool is_pending_or_queued_hole =
+            (node.id == pending_hole_node_id_) ||
+            (std::find(queued_hole_node_ids_.begin(), queued_hole_node_ids_.end(), node.id) !=
+             queued_hole_node_ids_.end());
+        if (!node.valid || node.is_transit || node.id == anchor_id || is_pending_or_queued_hole) {
             continue;
         }
         if (distance3(node.position, origin) > cleanup_radius) {
@@ -1190,6 +1385,8 @@ void PathPlanner::updateExploreGraphFromCandidates()
         queueEventInfo("EVENT_LOOP_CLOSED", last_loop_event_time_);
     }
 
+    rememberAnchorNode(anchor_id);
+
     RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
                          "[frontier] anchor=%d add_candidates=%zu nodes=%zu edges=%zu",
                          anchor_id, chosen.size(), graph_nodes_.size(), graph_edges_.size());
@@ -1203,18 +1400,30 @@ void PathPlanner::updateLocalPlanAndTrajectory()
     }
 
     advanceRouteProgressIfReached();
+    normalizePendingHoleQueue();
 
     if (mode_ == PlannerMode::EXPLORE) {
         if (force_graph_replan_after_loop_) {
             force_graph_replan_after_loop_ = false;
+            if (pending_hole_node_id_ > 0 && current_anchor_node_id_ > 0) {
+                const auto *hole_node = findNodeById(pending_hole_node_id_);
+                if (!hole_node || !hole_node->valid || hole_node->is_transit) {
+                    pending_hole_node_id_ = -1;
+                    normalizePendingHoleQueue();
+                } else if (current_anchor_node_id_ != pending_hole_node_id_) {
+                    if (startRouteToNode(pending_hole_node_id_)) {
+                        active_backtrack_goal_node_id_ = pending_hole_node_id_;
+                        changeMode(PlannerMode::BACKTRACK, "loop closure, backtrack to hole marker");
+                        return;
+                    }
+                } else {
+                    pending_hole_node_id_ = -1;
+                    normalizePendingHoleQueue();
+                }
+            }
             const bool has_unvisited = hasUnvisitedFrontiers();
             if (has_unvisited && current_anchor_node_id_ > 0) {
-                const auto frontier_node = nearestUnvisitedFrontierNodeId(current_anchor_node_id_);
-                if (frontier_node.has_value() && startRouteToNode(*frontier_node)) {
-                    changeMode(PlannerMode::BACKTRACK, "loop closure, switch to graph backtrack");
-                    return;
-                }
-                queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+                // Keep exploring after loop closure unless a hole target is pending.
                 return;
             }
             if (!has_unvisited) {
@@ -1233,6 +1442,7 @@ void PathPlanner::updateLocalPlanAndTrajectory()
                 if (current_anchor_node_id_ > 0) {
                     const auto frontier_node = nearestUnvisitedFrontierNodeId(current_anchor_node_id_);
                     if (frontier_node.has_value() && startRouteToNode(*frontier_node)) {
+                        active_backtrack_goal_node_id_ = *frontier_node;
                         changeMode(PlannerMode::BACKTRACK, "explore dead-end, backtrack to unvisited");
                     } else {
                         queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
@@ -1250,22 +1460,57 @@ void PathPlanner::updateLocalPlanAndTrajectory()
     }
 
     if (mode_ == PlannerMode::BACKTRACK) {
+        if (pending_hole_node_id_ > 0 && current_anchor_node_id_ == pending_hole_node_id_) {
+            pending_hole_node_id_ = -1;
+            normalizePendingHoleQueue();
+            active_backtrack_goal_node_id_ = -1;
+            changeMode(PlannerMode::EXPLORE, "hole marker reached, resume exploration");
+            return;
+        }
+
         if (active_route_node_ids_.empty()) {
-            if (hasUnvisitedFrontiers() && current_anchor_node_id_ > 0) {
-                const auto frontier_node = nearestUnvisitedFrontierNodeId(current_anchor_node_id_);
-                if (!(frontier_node.has_value() && startRouteToNode(*frontier_node))) {
-                    queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+            bool started_route = false;
+
+            if (pending_hole_node_id_ > 0 &&
+                current_anchor_node_id_ > 0 &&
+                current_anchor_node_id_ != pending_hole_node_id_) {
+                const auto *hole_node = findNodeById(pending_hole_node_id_);
+                if (!hole_node || !hole_node->valid || hole_node->is_transit) {
+                    pending_hole_node_id_ = -1;
+                    normalizePendingHoleQueue();
+                } else if (startRouteToNode(pending_hole_node_id_)) {
+                    active_backtrack_goal_node_id_ = pending_hole_node_id_;
+                    started_route = true;
+                }
+            }
+
+            if (!started_route) {
+                if (hasUnvisitedFrontiers() && current_anchor_node_id_ > 0) {
+                    const auto frontier_node = nearestUnvisitedFrontierNodeId(current_anchor_node_id_);
+                    if (!(frontier_node.has_value() && startRouteToNode(*frontier_node))) {
+                        queueEventInfo("EVENT_STUCK", last_stuck_event_time_);
+                        return;
+                    }
+                    active_backtrack_goal_node_id_ = *frontier_node;
+                } else {
+                    changeMode(PlannerMode::EXPLORE, "no reachable unvisited frontier");
                     return;
                 }
-            } else {
-                changeMode(PlannerMode::EXPLORE, "no reachable unvisited frontier");
-                return;
             }
         }
         if (active_route_index_ >= active_route_node_ids_.size()) {
             active_route_node_ids_.clear();
             active_route_index_ = 0;
-            changeMode(PlannerMode::EXPLORE, "backtrack route complete");
+            const bool reached_hole_target =
+                (pending_hole_node_id_ > 0 && active_backtrack_goal_node_id_ == pending_hole_node_id_);
+            active_backtrack_goal_node_id_ = -1;
+            if (reached_hole_target) {
+                pending_hole_node_id_ = -1;
+                normalizePendingHoleQueue();
+                changeMode(PlannerMode::EXPLORE, "hole marker reached, resume exploration");
+            } else {
+                changeMode(PlannerMode::EXPLORE, "backtrack route complete");
+            }
             return;
         }
     }
@@ -1366,6 +1611,10 @@ std::optional<geometry_msgs::msg::Point> PathPlanner::selectGoalPoint() const
             continue;
         }
         if (!(node.status == GraphNodeStatus::FRONTIER || node.status == GraphNodeStatus::UNVISITED)) {
+            continue;
+        }
+        // Side-opening markers are backtrack targets and should not be pursued directly in EXPLORE.
+        if (node.status == GraphNodeStatus::FRONTIER && node.frontier_score >= 2.4) {
             continue;
         }
 
@@ -2358,6 +2607,36 @@ bool PathPlanner::hasGraphEdge(int from_id, int to_id) const
     return std::any_of(graph_edges_.begin(), graph_edges_.end(), [&](const GraphEdge &edge) {
         return edge.valid && edge.from_id == a && edge.to_id == b;
     });
+}
+
+void PathPlanner::normalizePendingHoleQueue()
+{
+    auto isValidHoleNode = [this](int node_id) {
+        if (node_id <= 0) {
+            return false;
+        }
+        const auto *node = findNodeById(node_id);
+        return node && node->valid && !node->is_transit;
+    };
+
+    if (!isValidHoleNode(pending_hole_node_id_)) {
+        pending_hole_node_id_ = -1;
+    }
+
+    // Drop invalid or duplicate queued entries.
+    queued_hole_node_ids_.erase(
+        std::remove_if(queued_hole_node_ids_.begin(), queued_hole_node_ids_.end(),
+                       [&](int node_id) { return !isValidHoleNode(node_id) || node_id == pending_hole_node_id_; }),
+        queued_hole_node_ids_.end());
+
+    // Promote next queued hole when current pending target is missing.
+    while (pending_hole_node_id_ <= 0 && !queued_hole_node_ids_.empty()) {
+        const int next = queued_hole_node_ids_.front();
+        queued_hole_node_ids_.erase(queued_hole_node_ids_.begin());
+        if (isValidHoleNode(next)) {
+            pending_hole_node_id_ = next;
+        }
+    }
 }
 
 void PathPlanner::queueEventInfo(const std::string &event_info, rclcpp::Time &last_event_time)
