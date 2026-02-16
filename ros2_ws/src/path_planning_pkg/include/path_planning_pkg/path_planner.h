@@ -241,6 +241,7 @@ private: // PARAMETERS
     double loop_closure_min_node_age_sec_{2.0};
     int loop_closure_soft_confirm_cycles_{2};
     int loop_closure_soft_min_hops_{4};
+    double loop_closure_soft_min_route_len_m_{10.0};
 
     // Trajectory output
     bool trajectory_publish_enabled_{true};
@@ -291,6 +292,8 @@ private: // HELPERS
     void upsertGraphEdge(int from_id, int to_id);
     bool hasGraphEdge(int from_id, int to_id) const;
     void normalizePendingHoleQueue();
+    std::optional<int> selectReachableHoleTargetNodeId(int start_node_id) const;
+    void promoteHoleTargetToPending(int hole_node_id);
     void queueEventInfo(const std::string &event_info, rclcpp::Time &last_event_time);
     void publishDone(const std::string &info_code);
     std::optional<geometry_msgs::msg::Point> selectGoalPoint() const;

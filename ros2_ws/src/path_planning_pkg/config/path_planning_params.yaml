@@ -63,6 +63,7 @@ path_planner:
       loop_closure_min_node_age_sec: 2.0
       loop_closure_soft_confirm_cycles: 2
       loop_closure_soft_min_hops: 4
+      loop_closure_soft_min_route_len_m: 10.0
     trajectory:
       publish_enabled: true
       nominal_speed_mps: 2.5

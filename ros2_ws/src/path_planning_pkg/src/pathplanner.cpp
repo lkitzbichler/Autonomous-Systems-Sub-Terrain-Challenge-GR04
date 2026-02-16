@@ -116,6 +116,8 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
         declare_parameter<int>("explore.loop_closure_soft_confirm_cycles", 2);
     loop_closure_soft_min_hops_ =
         declare_parameter<int>("explore.loop_closure_soft_min_hops", 4);
+    loop_closure_soft_min_route_len_m_ =
+        declare_parameter<double>("explore.loop_closure_soft_min_route_len_m", 10.0);
 
     // Trajectory output
     trajectory_publish_enabled_ =
@@ -987,32 +989,69 @@ void PathPlanner::updateExploreGraphFromCandidates()
             recent_anchor_node_ids_.pop_front();
         }
     };
+    const double min_loop_age_sec = std::max(0.0, loop_closure_min_node_age_sec_);
     const int soft_confirm_cycles = std::max(1, loop_closure_soft_confirm_cycles_);
     const int soft_min_hops = std::max(2, loop_closure_soft_min_hops_);
+    const double soft_min_route_len_m = std::max(0.0, loop_closure_soft_min_route_len_m_);
     const double loop_overlap_radius = std::max(0.5, graph_merge_radius_m_);
+    auto isOldEnoughForLoop = [&](const GraphNode &node) {
+        if (node.stamp.nanoseconds() == 0) {
+            return true;
+        }
+        return (now - node.stamp).seconds() >= min_loop_age_sec;
+    };
     int soft_loop_candidate_node_id = -1;
-    int soft_loop_candidate_hops = -1;
-    auto getPreexistingRouteHops = [&](int from_id, int to_id, int &hops_out) {
-        hops_out = -1;
+    int soft_loop_candidate_score = -1;
+    struct RouteInfo {
+        bool exists{false};
+        int hops{0};
+        double length_m{0.0};
+    };
+    auto getRouteInfo = [&](int from_id, int to_id) {
+        RouteInfo info;
         if (from_id <= 0 || to_id <= 0 || from_id == to_id) {
-            return false;
+            return info;
         }
         std::vector<int> path;
         if (!computeShortestPathNodeIds(from_id, to_id, path)) {
+            return info;
+        }
+        info.exists = true;
+        info.hops = std::max(0, static_cast<int>(path.size()) - 1);
+        double total_len = 0.0;
+        for (std::size_t i = 1; i < path.size(); ++i) {
+            const auto *a = findNodeById(path[i - 1]);
+            const auto *b = findNodeById(path[i]);
+            if (!a || !b || !a->valid || !b->valid) {
+                continue;
+            }
+            total_len += distance3(a->position, b->position);
+        }
+        info.length_m = total_len;
+        return info;
+    };
+    auto passesSoftLoopThreshold = [&](const RouteInfo &route) {
+        if (!route.exists) {
             return false;
         }
-        hops_out = std::max(0, static_cast<int>(path.size()) - 1);
-        return true;
+        if (route.hops >= soft_min_hops) {
+            return true;
+        }
+        return route.length_m >= soft_min_route_len_m;
     };
-    auto considerSoftLoopCandidate = [&](int to_id, int hops) {
+    auto considerSoftLoopCandidate = [&](int to_id, const RouteInfo &route) {
         if (mode_ != PlannerMode::EXPLORE || to_id <= 0) {
             return;
         }
-        if (hops > soft_loop_candidate_hops ||
-            (hops == soft_loop_candidate_hops &&
+        if (!passesSoftLoopThreshold(route)) {
+            return;
+        }
+        const int score = std::max(route.hops, static_cast<int>(std::lround(route.length_m)));
+        if (score > soft_loop_candidate_score ||
+            (score == soft_loop_candidate_score &&
              (soft_loop_candidate_node_id <= 0 || to_id < soft_loop_candidate_node_id))) {
             soft_loop_candidate_node_id = to_id;
-            soft_loop_candidate_hops = hops;
+            soft_loop_candidate_score = score;
         }
     };
 
@@ -1024,15 +1063,19 @@ void PathPlanner::updateExploreGraphFromCandidates()
         anchor_prev_status == GraphNodeStatus::VISITED ||
         anchor_prev_status == GraphNodeStatus::DEAD_END;
     const bool anchor_recent = isRecentAnchorNode(anchor_id);
-    if (anchor_reused && anchor_known_old && !anchor_recent) {
-        int anchor_hops = -1;
-        const bool anchor_has_old_route = getPreexistingRouteHops(last_anchor_id, anchor_id, anchor_hops);
-        strong_loop_closed = true;
-        strong_loop_reason = "anchor revisit merge";
-        RCLCPP_INFO(this->get_logger(),
-                    "[loop] anchor revisit evidence anchor=%d hops=%d prev_edge=%s preexisting_route=%s",
-                    anchor_id, anchor_hops, had_prev_edge ? "true" : "false",
-                    anchor_has_old_route ? "true" : "false");
+    if (anchor_reused && anchor_known_old && !anchor_recent && isOldEnoughForLoop(*anchor)) {
+        const auto route = getRouteInfo(last_anchor_id, anchor_id);
+        if (!route.exists) {
+            strong_loop_closed = true;
+            strong_loop_reason = "anchor revisit without preexisting route";
+        } else {
+            considerSoftLoopCandidate(anchor_id, route);
+            if (passesSoftLoopThreshold(route)) {
+                RCLCPP_INFO(this->get_logger(),
+                            "[loop] anchor revisit evidence anchor=%d hops=%d len=%.1f prev_edge=%s preexisting_route=true",
+                            anchor_id, route.hops, route.length_m, had_prev_edge ? "true" : "false");
+            }
+        }
     }
     previous_anchor_node_id_ = last_anchor_id;
     current_anchor_node_id_ = anchor_id;
@@ -1080,25 +1123,23 @@ void PathPlanner::updateExploreGraphFromCandidates()
         if (!had_edge) {
             ++links_added;
         }
-        if (!had_edge) {
+        if (!had_edge && isOldEnoughForLoop(*node)) {
             const bool known_old =
                 node->is_transit ||
                 node->status == GraphNodeStatus::VISITED ||
                 node->status == GraphNodeStatus::DEAD_END;
             const bool node_recent = isRecentAnchorNode(node_id);
             if (known_old && !node_recent) {
-                int route_hops = -1;
-                const bool has_old_route = getPreexistingRouteHops(anchor_id, node_id, route_hops);
-                if (!has_old_route &&
+                const auto route = getRouteInfo(anchor_id, node_id);
+                if (!route.exists &&
                     (node->is_transit || distance3(node->position, origin) <= loop_overlap_radius)) {
                     strong_loop_closed = true;
                     if (strong_loop_reason.empty()) {
                         strong_loop_reason = "new edge to old node without preexisting route";
                     }
-                } else if ((node->status == GraphNodeStatus::VISITED ||
-                            node->status == GraphNodeStatus::DEAD_END) &&
-                           route_hops >= soft_min_hops) {
-                    considerSoftLoopCandidate(node_id, route_hops);
+                } else if (node->status == GraphNodeStatus::VISITED ||
+                           node->status == GraphNodeStatus::DEAD_END) {
+                    considerSoftLoopCandidate(node_id, route);
                 }
             }
         }
@@ -1136,6 +1177,11 @@ void PathPlanner::updateExploreGraphFromCandidates()
             RCLCPP_INFO(this->get_logger(),
                         "[loop] closure confirmed (soft evidence) anchor=%d",
                         anchor_id);
+        }
+        if (mode_ == PlannerMode::EXPLORE) {
+            // Trigger loop-handling immediately; otherwise early returns below can skip it.
+            force_graph_replan_after_loop_ = true;
+            queueEventInfo("EVENT_LOOP_CLOSED", last_loop_event_time_);
         }
     }
 
@@ -1380,11 +1426,6 @@ void PathPlanner::updateExploreGraphFromCandidates()
     has_frontier_seed_position_ = true;
     last_frontier_seed_position_ = origin;
 
-    if (loop_closed) {
-        force_graph_replan_after_loop_ = true;
-        queueEventInfo("EVENT_LOOP_CLOSED", last_loop_event_time_);
-    }
-
     rememberAnchorNode(anchor_id);
 
     RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 3000,
@@ -1405,20 +1446,33 @@ void PathPlanner::updateLocalPlanAndTrajectory()
     if (mode_ == PlannerMode::EXPLORE) {
         if (force_graph_replan_after_loop_) {
             force_graph_replan_after_loop_ = false;
-            if (pending_hole_node_id_ > 0 && current_anchor_node_id_ > 0) {
-                const auto *hole_node = findNodeById(pending_hole_node_id_);
-                if (!hole_node || !hole_node->valid || hole_node->is_transit) {
-                    pending_hole_node_id_ = -1;
-                    normalizePendingHoleQueue();
-                } else if (current_anchor_node_id_ != pending_hole_node_id_) {
-                    if (startRouteToNode(pending_hole_node_id_)) {
+            if (current_anchor_node_id_ > 0) {
+                const auto reachable_hole = selectReachableHoleTargetNodeId(current_anchor_node_id_);
+                if (reachable_hole.has_value()) {
+                    promoteHoleTargetToPending(*reachable_hole);
+                    if (current_anchor_node_id_ == pending_hole_node_id_) {
+                        pending_hole_node_id_ = -1;
+                        normalizePendingHoleQueue();
+                    } else if (startRouteToNode(pending_hole_node_id_)) {
                         active_backtrack_goal_node_id_ = pending_hole_node_id_;
+                        RCLCPP_INFO(this->get_logger(),
+                                    "[loop] backtrack target selected pending=%d queued=%zu",
+                                    pending_hole_node_id_, queued_hole_node_ids_.size());
                         changeMode(PlannerMode::BACKTRACK, "loop closure, backtrack to hole marker");
                         return;
+                    } else {
+                        // Route can become temporarily unavailable after graph cleanups/relinks.
+                        force_graph_replan_after_loop_ = true;
+                        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                             "[loop] reachable-hole routing failed pending=%d queued=%zu",
+                                             pending_hole_node_id_, queued_hole_node_ids_.size());
                     }
-                } else {
-                    pending_hole_node_id_ = -1;
-                    normalizePendingHoleQueue();
+                } else if (pending_hole_node_id_ > 0 || !queued_hole_node_ids_.empty()) {
+                    // Keep retrying on next cycles instead of silently dropping the closure action.
+                    force_graph_replan_after_loop_ = true;
+                    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                         "[loop] no reachable hole target pending=%d queued=%zu",
+                                         pending_hole_node_id_, queued_hole_node_ids_.size());
                 }
             }
             const bool has_unvisited = hasUnvisitedFrontiers();
@@ -1471,16 +1525,19 @@ void PathPlanner::updateLocalPlanAndTrajectory()
         if (active_route_node_ids_.empty()) {
             bool started_route = false;
 
-            if (pending_hole_node_id_ > 0 &&
-                current_anchor_node_id_ > 0 &&
-                current_anchor_node_id_ != pending_hole_node_id_) {
-                const auto *hole_node = findNodeById(pending_hole_node_id_);
-                if (!hole_node || !hole_node->valid || hole_node->is_transit) {
-                    pending_hole_node_id_ = -1;
-                    normalizePendingHoleQueue();
-                } else if (startRouteToNode(pending_hole_node_id_)) {
-                    active_backtrack_goal_node_id_ = pending_hole_node_id_;
-                    started_route = true;
+            if (current_anchor_node_id_ > 0) {
+                const auto reachable_hole = selectReachableHoleTargetNodeId(current_anchor_node_id_);
+                if (reachable_hole.has_value()) {
+                    promoteHoleTargetToPending(*reachable_hole);
+                    if (current_anchor_node_id_ != pending_hole_node_id_ &&
+                        startRouteToNode(pending_hole_node_id_)) {
+                        active_backtrack_goal_node_id_ = pending_hole_node_id_;
+                        started_route = true;
+                    }
+                } else if (pending_hole_node_id_ > 0 || !queued_hole_node_ids_.empty()) {
+                    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                         "[backtrack] no reachable hole target pending=%d queued=%zu",
+                                         pending_hole_node_id_, queued_hole_node_ids_.size());
                 }
             }
 
@@ -2637,6 +2694,55 @@ void PathPlanner::normalizePendingHoleQueue()
             pending_hole_node_id_ = next;
         }
     }
+}
+
+std::optional<int> PathPlanner::selectReachableHoleTargetNodeId(int start_node_id) const
+{
+    if (start_node_id <= 0) {
+        return std::nullopt;
+    }
+
+    auto isValidHoleNode = [this](int node_id) {
+        if (node_id <= 0) {
+            return false;
+        }
+        const auto *node = findNodeById(node_id);
+        return node && node->valid && !node->is_transit;
+    };
+
+    std::vector<int> ordered_candidates;
+    ordered_candidates.reserve(1 + queued_hole_node_ids_.size());
+    if (isValidHoleNode(pending_hole_node_id_)) {
+        ordered_candidates.push_back(pending_hole_node_id_);
+    }
+    for (const int node_id : queued_hole_node_ids_) {
+        if (!isValidHoleNode(node_id)) {
+            continue;
+        }
+        if (std::find(ordered_candidates.begin(), ordered_candidates.end(), node_id) ==
+            ordered_candidates.end()) {
+            ordered_candidates.push_back(node_id);
+        }
+    }
+
+    for (const int target_id : ordered_candidates) {
+        std::vector<int> path;
+        if (computeShortestPathNodeIds(start_node_id, target_id, path)) {
+            return target_id;
+        }
+    }
+    return std::nullopt;
+}
+
+void PathPlanner::promoteHoleTargetToPending(int hole_node_id)
+{
+    if (hole_node_id <= 0) {
+        return;
+    }
+    pending_hole_node_id_ = hole_node_id;
+    queued_hole_node_ids_.erase(
+        std::remove(queued_hole_node_ids_.begin(), queued_hole_node_ids_.end(), hole_node_id),
+        queued_hole_node_ids_.end());
 }
 
 void PathPlanner::queueEventInfo(const std::string &event_info, rclcpp::Time &last_event_time)
