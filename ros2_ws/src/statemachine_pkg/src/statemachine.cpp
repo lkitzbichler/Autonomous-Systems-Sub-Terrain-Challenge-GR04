@@ -28,6 +28,7 @@ double distance3(const geometry_msgs::msg::Point &a, const geometry_msgs::msg::P
 constexpr double kTakeoffHeightM = 5.0; // Fixed takeoff height above start position
 constexpr double kMinStartPosNormM = 1e-3; // Reject near-zero start pose (0,0,0) as invalid
 constexpr double kMinLandingDescentM = 0.05; // Guard against non-descending landing targets
+constexpr std::size_t kRequiredLanternCount = 5; // Mission target: unique lantern tracks
 
 } // namespace
 
@@ -189,11 +190,13 @@ void StateMachine::changeState(MissionStates new_state, const std::string &reaso
             if (!node_waypoint.empty()) sendCommand(node_waypoint, Commands::START);
             break;
         case MissionStates::EXPLORING:
-            planner_done_ = false; // Reset planner completion flag
+            planner_exploration_done_ = false;
+            planner_return_home_done_ = false;
             if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
             if (!node_planner.empty()) sendCommand(node_planner, Commands::START);
             break;
         case MissionStates::RETURN_HOME:
+            planner_return_home_done_ = false;
             if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
             if (!node_planner.empty()) {
                 if (start_checkpoint_inserted_ && !checkpoint_positions_.empty()) {
@@ -292,13 +295,15 @@ void StateMachine::handleAnswer(const statemachine_pkg::msg::Answer::SharedPtr m
         return;
     }
 
-    // Step 2: Convert status code to enum (RUNNING-only; everything else is UNKNOWN)
+    const std::string planner_name = nodeNameByIndex(node_planner_index_);
+    const bool is_planner_msg = !planner_name.empty() && msg->node_name == planner_name;
+
+    // Step 2: Convert status code to enum (RUNNING-only; DONE accepted from planner only)
     AnswerStates status = AnswerStates::UNKNOWN;
     if (msg->state == static_cast<uint8_t>(AnswerStates::RUNNING)) {
         status = AnswerStates::RUNNING;
     } else if (msg->state == static_cast<uint8_t>(AnswerStates::DONE)) {
-        const std::string planner_name = nodeNameByIndex(node_planner_index_);
-        if (!planner_name.empty() && msg->node_name == planner_name) {
+        if (is_planner_msg) {
             status = AnswerStates::DONE;
         }
     }
@@ -338,9 +343,17 @@ void StateMachine::handleAnswer(const statemachine_pkg::msg::Answer::SharedPtr m
         RCLCPP_INFO(this->get_logger(), "[Node] %s ist online", msg->node_name.c_str());
     }
 
-    // Step 5: Only store status/heartbeat here; transitions happen elsewhere
-    if (status == AnswerStates::DONE) {
-        planner_done_ = true;
+    // Step 6: Decode planner DONE info codes explicitly (no generic DONE flag).
+    if (status == AnswerStates::DONE && is_planner_msg) {
+        if (msg->info == "DONE_EXPLORATION_COMPLETE") {
+            planner_exploration_done_ = true;
+            logEvent("[Planner] DONE_EXPLORATION_COMPLETE");
+        } else if (msg->info == "DONE_RETURN_HOME_REACHED") {
+            planner_return_home_done_ = true;
+            logEvent("[Planner] DONE_RETURN_HOME_REACHED");
+        } else {
+            logEvent("[Planner] DONE with unknown info: " + msg->info);
+        }
     }
 }
 
@@ -670,16 +683,18 @@ void StateMachine::handleFlagEvents()
         checkpoint_reached_ = false;
     }
 
-    // Step 3: Exploration complete condition
+    // Step 3: Mission target reached -> return home immediately.
     if (state_ == MissionStates::EXPLORING) {
-        if (planner_done_ && lantern_tracks_.size() >= 5) {
-            changeState(MissionStates::RETURN_HOME, "exploration complete");
+        if (lantern_tracks_.size() >= kRequiredLanternCount) {
+            changeState(MissionStates::RETURN_HOME, "lantern goal reached");
         }
     }
 
-    // Step 4: Start landing only after reaching return-home target (takeoff start point).
-    if (state_ == MissionStates::RETURN_HOME && has_current_pose_ &&
-        start_checkpoint_inserted_ && !checkpoint_positions_.empty()) {
+    // Step 4: Start landing after planner confirms return-home, or when home target is physically reached.
+    if (state_ == MissionStates::RETURN_HOME && planner_return_home_done_) {
+        changeState(MissionStates::LAND, "planner reported return-home complete");
+    } else if (state_ == MissionStates::RETURN_HOME && has_current_pose_ &&
+               start_checkpoint_inserted_ && !checkpoint_positions_.empty()) {
         const auto &home_cp = checkpoint_positions_.front();
         geometry_msgs::msg::Point home_target;
         home_target.x = home_cp.x();

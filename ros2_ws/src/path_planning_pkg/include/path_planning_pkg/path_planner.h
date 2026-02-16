@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <utility>
+#include <deque>
 
 namespace octomap
 {
@@ -127,6 +128,8 @@ private: // STATE
     int side_opening_left_streak_{0};
     int side_opening_right_streak_{0};
     bool force_graph_replan_after_loop_{false};
+    int soft_loop_candidate_node_id_{-1};
+    int soft_loop_candidate_streak_{0};
     std::size_t free_candidate_count_{0};
     std::size_t unknown_candidate_count_{0};
     bool has_frontier_seed_position_{false};
@@ -141,11 +144,15 @@ private: // STATE
     std::size_t published_plan_count_{0};
     int current_anchor_node_id_{-1};
     int previous_anchor_node_id_{-1};
+    std::deque<int> recent_anchor_node_ids_;
     int home_node_id_{-1};
     bool has_return_home_target_{false};
     geometry_msgs::msg::Point return_home_target_{};
     std::vector<int> active_route_node_ids_;
     std::size_t active_route_index_{0};
+    int pending_hole_node_id_{-1};
+    std::vector<int> queued_hole_node_ids_;
+    int active_backtrack_goal_node_id_{-1};
     bool exploration_done_reported_{false};
     bool return_home_done_reported_{false};
 
@@ -224,6 +231,7 @@ private: // PARAMETERS
     int side_opening_confirm_cycles_{3};
     int side_opening_max_candidates_{1};
     double side_opening_reuse_radius_m_{15.0};
+    double hole_marker_dedupe_radius_m_{10.0};
     bool prefer_unknown_over_free_{true};
     double frontier_node_spacing_m_{6.0};
     int max_frontier_nodes_per_cycle_{3};
@@ -231,6 +239,10 @@ private: // PARAMETERS
     double known_path_reject_radius_m_{4.0};
     double frontier_cleanup_radius_m_{10.0};
     double event_cooldown_sec_{2.0};
+    double loop_closure_min_node_age_sec_{2.0};
+    int loop_closure_soft_confirm_cycles_{2};
+    int loop_closure_soft_min_hops_{4};
+    double loop_closure_soft_min_route_len_m_{10.0};
 
     // Trajectory output
     bool trajectory_publish_enabled_{true};
@@ -280,6 +292,9 @@ private: // HELPERS
     int addOrMergeGraphNode(const geometry_msgs::msg::Point &point, bool is_transit, bool &inserted_new);
     void upsertGraphEdge(int from_id, int to_id);
     bool hasGraphEdge(int from_id, int to_id) const;
+    void normalizePendingHoleQueue();
+    std::optional<int> selectReachableHoleTargetNodeId(int start_node_id) const;
+    void promoteHoleTargetToPending(int hole_node_id);
     void queueEventInfo(const std::string &event_info, rclcpp::Time &last_event_time);
     void publishDone(const std::string &info_code);
     std::optional<geometry_msgs::msg::Point> selectGoalPoint() const;

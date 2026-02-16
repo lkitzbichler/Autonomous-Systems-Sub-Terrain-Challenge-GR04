@@ -53,6 +53,7 @@ path_planner:
       side_opening_confirm_cycles: 3
       side_opening_max_candidates: 1
       side_opening_reuse_radius_m: 15.0
+      hole_marker_dedupe_radius_m: 10.0
       prefer_unknown_over_free: true
       frontier_node_spacing_m: 6.0
       max_frontier_nodes_per_cycle: 3
@@ -60,6 +61,10 @@ path_planner:
       known_path_reject_radius_m: 4.0
       frontier_cleanup_radius_m: 10.0
       event_cooldown_sec: 2.0
+      loop_closure_min_node_age_sec: 2.0
+      loop_closure_soft_confirm_cycles: 2
+      loop_closure_soft_min_hops: 4
+      loop_closure_soft_min_route_len_m: 10.0
     trajectory:
       publish_enabled: true
       nominal_speed_mps: 2.5

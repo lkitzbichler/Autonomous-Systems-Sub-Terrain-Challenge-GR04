@@ -76,7 +76,8 @@ private: // VARIABLES and STRUCTS
     geometry_msgs::msg::Point current_position_; // Latest position from state estimate
     std::string current_pose_frame_id_{"world"}; // Frame for current pose/path
     std::vector<geometry_msgs::msg::Point> path_points_; // Flight path points for visualization
-    bool planner_done_{false}; // Planner DONE flag (used in exploring)
+    bool planner_exploration_done_{false}; // Planner reported exploration completion
+    bool planner_return_home_done_{false}; // Planner reported return-home completion
     std::shared_ptr<octomap::OcTree> octree_; // Latest octomap for landing ground estimation
     rclcpp::TimerBase::SharedPtr timer_; // Timer for periodic tasks like state publishing and heartbeat checks
 
