@@ -51,9 +51,14 @@ StateMachine::StateMachine() : Node("state_machine_node")
     this->takeoff_cmd_retry_sec_ = declare_parameter<double>("time.takeoff_cmd_retry_sec", 1.5);
     this->path_sample_dist_m_ = declare_parameter<double>("viz.path_sample_dist_m", 0.2);
     this->checkpoint_reach_dist_m_ = declare_parameter<double>("checkpoints.reach_dist_m", 0.5);
-    this->landing_xy_radius_m_ = declare_parameter<double>("landing.xy_radius_m", 0.5);
+    this->landing_xy_radius_m_ = declare_parameter<double>("landing.xy_radius_m", 1.5);
+    this->landing_xy_radius_max_m_ = declare_parameter<double>("landing.xy_radius_max_m", 3.0);
+    this->landing_xy_radius_increment_m_ = declare_parameter<double>("landing.xy_radius_increment_m", 0.5);
     this->landing_clearance_m_ = declare_parameter<double>("landing.clearance_m", 0.2);
-    this->landing_probe_depth_m_ = declare_parameter<double>("landing.probe_depth_m", 30.0);
+    this->landing_probe_depth_m_ = declare_parameter<double>("landing.probe_depth_m", 80.0);
+    this->landing_min_hit_count_ = declare_parameter<int>("landing.min_hit_count", 3);
+    this->landing_min_hit_fraction_ = declare_parameter<double>("landing.min_hit_fraction", 0.05);
+    this->landing_use_start_fallback_ = declare_parameter<bool>("landing.use_start_fallback", true);
     // Node role indices (refer to entries in node_list_)
     this->node_controller_index_ = declare_parameter<int>("node_roles.controller_index", -1);
     this->node_waypoint_index_ = declare_parameter<int>("node_roles.waypoint_index", -1);
@@ -869,48 +874,68 @@ bool StateMachine::estimateGroundHeight(double &ground_z_out) const
     }
 
     // Step 2: Prepare local XY grid sampling and downward ray direction
-    const double radius = std::max(0.0, landing_xy_radius_m_);
+    const double base_radius = std::max(0.0, landing_xy_radius_m_);
+    const double max_radius = std::max(base_radius, landing_xy_radius_max_m_);
+    const double radius_increment = std::max(0.05, landing_xy_radius_increment_m_);
     const double step = std::max(0.05, octree_->getResolution());
     const octomap::point3d dir_down(0.0F, 0.0F, -1.0F);
     const double z_start = current_position_.z;
 
-    bool hit_found = false;
-    double best_ground_z = -std::numeric_limits<double>::infinity();
+    // Step 3: Probe from small to larger radii and accept when hit quality is sufficient.
+    for (double radius = base_radius; radius <= max_radius + 1e-6; radius += radius_increment) {
+        bool hit_found = false;
+        double best_ground_z = -std::numeric_limits<double>::infinity();
+        int sample_count = 0;
+        int hit_count = 0;
 
-    // Step 3: Cast rays downward in a disk around current XY and keep highest hit below UAV
-    for (double dx = -radius; dx <= radius + 1e-6; dx += step) {
-        for (double dy = -radius; dy <= radius + 1e-6; dy += step) {
-            if ((dx * dx + dy * dy) > (radius * radius)) {
-                continue;
-            }
+        for (double dx = -radius; dx <= radius + 1e-6; dx += step) {
+            for (double dy = -radius; dy <= radius + 1e-6; dy += step) {
+                if ((dx * dx + dy * dy) > (radius * radius)) {
+                    continue;
+                }
 
-            const octomap::point3d origin(
-                static_cast<float>(current_position_.x + dx),
-                static_cast<float>(current_position_.y + dy),
-                static_cast<float>(z_start));
-            octomap::point3d hit;
-            const bool ray_hit = octree_->castRay(origin, dir_down, hit, true, landing_probe_depth_m_);
-            if (!ray_hit) {
-                continue;
-            }
+                ++sample_count;
+                const octomap::point3d origin(
+                    static_cast<float>(current_position_.x + dx),
+                    static_cast<float>(current_position_.y + dy),
+                    static_cast<float>(z_start));
+                octomap::point3d hit;
+                const bool ray_hit = octree_->castRay(origin, dir_down, hit, true, landing_probe_depth_m_);
+                if (!ray_hit) {
+                    continue;
+                }
 
-            const double hit_z = static_cast<double>(hit.z());
-            if (hit_z >= z_start) {
-                continue;
+                const double hit_z = static_cast<double>(hit.z());
+                if (hit_z >= z_start) {
+                    continue;
+                }
+
+                ++hit_count;
+                if (!hit_found || hit_z > best_ground_z) {
+                    best_ground_z = hit_z;
+                    hit_found = true;
+                }
             }
-            if (!hit_found || hit_z > best_ground_z) {
-                best_ground_z = hit_z;
-                hit_found = true;
-            }
+        }
+
+        if (!hit_found) {
+            continue;
+        }
+
+        const int min_hits_abs = std::max(1, landing_min_hit_count_);
+        const double min_hit_fraction = std::clamp(landing_min_hit_fraction_, 0.0, 1.0);
+        const int min_hits_fraction =
+            static_cast<int>(std::ceil(min_hit_fraction * static_cast<double>(std::max(1, sample_count))));
+        const int min_hits_required = std::max(min_hits_abs, min_hits_fraction);
+
+        if (hit_count >= min_hits_required) {
+            ground_z_out = best_ground_z;
+            return true;
         }
     }
 
-    // Step 4: Return result
-    if (!hit_found) {
-        return false;
-    }
-    ground_z_out = best_ground_z;
-    return true;
+    // Step 4: No radius produced enough valid downward hits.
+    return false;
 }
 
 /**
@@ -922,14 +947,28 @@ bool StateMachine::prepareLandingCheckpoint(geometry_msgs::msg::Point &target_ou
 {
     // Step 1: Require current pose and a valid ground estimate
     double ground_z = 0.0;
-    if (!has_current_pose_ || !estimateGroundHeight(ground_z)) {
+    if (!has_current_pose_) {
         return false;
     }
 
-    // Step 2: Build target above local ground
-    target_out.x = current_position_.x;
-    target_out.y = current_position_.y;
-    target_out.z = ground_z + landing_clearance_m_;
+    const bool map_ground_ok = estimateGroundHeight(ground_z);
+    if (!map_ground_ok && landing_use_start_fallback_ &&
+        start_checkpoint_inserted_ && !checkpoint_positions_.empty()) {
+        // Fallback: derive original start ground from inserted takeoff checkpoint (start + kTakeoffHeightM).
+        const auto &start_cp = checkpoint_positions_.front();
+        ground_z = start_cp.z() - kTakeoffHeightM;
+        target_out.x = start_cp.x();
+        target_out.y = start_cp.y();
+        target_out.z = ground_z + landing_clearance_m_;
+        logEvent("[LAND] fallback to start checkpoint target");
+    } else if (!map_ground_ok) {
+        return false;
+    } else {
+        // Step 2: Build target above local ground
+        target_out.x = current_position_.x;
+        target_out.y = current_position_.y;
+        target_out.z = ground_z + landing_clearance_m_;
+    }
 
     // Step 3: Ensure this is an actual descent target
     if (target_out.z >= (current_position_.z - kMinLandingDescentM)) {

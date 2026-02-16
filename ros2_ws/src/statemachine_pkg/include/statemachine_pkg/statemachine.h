@@ -109,8 +109,13 @@ private: // PARAMETERS
     double checkpoint_reach_dist_m_;        // Distance threshold for reaching a checkpoint
     double path_sample_dist_m_;             // Min distance between path samples
     double landing_xy_radius_m_;            // XY search radius for local ground estimation
+    double landing_xy_radius_max_m_;        // Max XY search radius for adaptive ground estimation
+    double landing_xy_radius_increment_m_;  // Radius increment for adaptive ground estimation
     double landing_clearance_m_;            // Clearance above estimated ground for landing target
     double landing_probe_depth_m_;          // Max downward ray distance for ground estimation
+    int landing_min_hit_count_;             // Minimum number of downward ray hits required
+    double landing_min_hit_fraction_;       // Minimum ratio of ray hits in the sampled disk
+    bool landing_use_start_fallback_;       // Use start-checkpoint-based fallback if map ground estimate fails
 
     // LANTERNS
     double min_lantern_dist_;               // Minimum distance to consider a new lantern detection as the same as an existing track and merge it
