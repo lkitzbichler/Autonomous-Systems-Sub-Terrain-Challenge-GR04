@@ -53,6 +53,7 @@ path_planner:
       side_opening_confirm_cycles: 3
       side_opening_max_candidates: 1
       side_opening_reuse_radius_m: 15.0
+      hole_marker_dedupe_radius_m: 10.0
       prefer_unknown_over_free: true
       frontier_node_spacing_m: 6.0
       max_frontier_nodes_per_cycle: 3

@@ -231,6 +231,7 @@ private: // PARAMETERS
     int side_opening_confirm_cycles_{3};
     int side_opening_max_candidates_{1};
     double side_opening_reuse_radius_m_{15.0};
+    double hole_marker_dedupe_radius_m_{10.0};
     bool prefer_unknown_over_free_{true};
     double frontier_node_spacing_m_{6.0};
     int max_frontier_nodes_per_cycle_{3};

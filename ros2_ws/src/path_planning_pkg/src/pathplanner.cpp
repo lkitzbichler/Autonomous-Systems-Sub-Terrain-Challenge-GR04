@@ -103,6 +103,8 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner")
     side_opening_confirm_cycles_ = declare_parameter<int>("explore.side_opening_confirm_cycles", 3);
     side_opening_max_candidates_ = declare_parameter<int>("explore.side_opening_max_candidates", 1);
     side_opening_reuse_radius_m_ = declare_parameter<double>("explore.side_opening_reuse_radius_m", 15.0);
+    hole_marker_dedupe_radius_m_ =
+        declare_parameter<double>("explore.hole_marker_dedupe_radius_m", 10.0);
     prefer_unknown_over_free_ = declare_parameter<bool>("explore.prefer_unknown_over_free", true);
     frontier_node_spacing_m_ = declare_parameter<double>("explore.frontier_node_spacing_m", 6.0);
     max_frontier_nodes_per_cycle_ = declare_parameter<int>("explore.max_frontier_nodes_per_cycle", 3);
@@ -883,14 +885,15 @@ void PathPlanner::updateBranchCandidates()
     };
     std::vector<StableSideCandidate> stable_sides;
     const int confirm_cycles = std::max(1, side_opening_confirm_cycles_);
-    if (left_bundle.detected && side_opening_left_streak_ >= confirm_cycles) {
+    // Emit only once when a side opening becomes stable (rising edge of stable streak).
+    if (left_bundle.detected && side_opening_left_streak_ == confirm_cycles) {
         const auto target = makeSideTarget(
             left_bundle.best_rel_yaw_deg, left_bundle.best_pitch_deg, left_bundle.best_open_depth_m);
         if (target.has_value()) {
             stable_sides.push_back({*target, left_bundle.mean_depth_m});
         }
     }
-    if (right_bundle.detected && side_opening_right_streak_ >= confirm_cycles) {
+    if (right_bundle.detected && side_opening_right_streak_ == confirm_cycles) {
         const auto target = makeSideTarget(
             right_bundle.best_rel_yaw_deg, right_bundle.best_pitch_deg, right_bundle.best_open_depth_m);
         if (target.has_value()) {
@@ -1275,6 +1278,41 @@ void PathPlanner::updateExploreGraphFromCandidates()
         const int side_budget = std::max(0, limit - static_cast<int>(chosen.size()));
         const double reuse_radius = std::max(
             0.0, std::min(side_opening_reuse_radius_m_, std::max(2.0, frontier_node_spacing_m_)));
+        const double hole_dedupe_radius = std::max(0.0, hole_marker_dedupe_radius_m_);
+        auto isQueuedHoleNode = [&](int node_id) {
+            return node_id > 0 &&
+                   std::find(queued_hole_node_ids_.begin(), queued_hole_node_ids_.end(), node_id) !=
+                       queued_hole_node_ids_.end();
+        };
+        auto findNearbyStoredHoleNodeId = [&](const geometry_msgs::msg::Point &target) -> std::optional<int> {
+            if (hole_dedupe_radius <= 1e-6) {
+                return std::nullopt;
+            }
+            int best_node_id = -1;
+            double best_dist = std::numeric_limits<double>::max();
+            auto considerNode = [&](int node_id) {
+                if (node_id <= 0) {
+                    return;
+                }
+                const auto *node = findNodeById(node_id);
+                if (!node || !node->valid) {
+                    return;
+                }
+                const double dist = distance3(node->position, target);
+                if (dist <= hole_dedupe_radius && dist < best_dist) {
+                    best_dist = dist;
+                    best_node_id = node_id;
+                }
+            };
+            considerNode(pending_hole_node_id_);
+            for (const int node_id : queued_hole_node_ids_) {
+                considerNode(node_id);
+            }
+            if (best_node_id > 0) {
+                return best_node_id;
+            }
+            return std::nullopt;
+        };
         for (const auto &raw_side_target : side_opening_targets_) {
             if (side_nodes_added >= side_budget) {
                 break;
@@ -1294,7 +1332,13 @@ void PathPlanner::updateExploreGraphFromCandidates()
             }
 
             bool inserted_new = false;
-            const int side_node_id = addOrMergeGraphNode(side_target, false, inserted_new);
+            int side_node_id = -1;
+            if (const auto deduped_hole_id = findNearbyStoredHoleNodeId(side_target);
+                deduped_hole_id.has_value()) {
+                side_node_id = *deduped_hole_id;
+            } else {
+                side_node_id = addOrMergeGraphNode(side_target, false, inserted_new);
+            }
             if (side_node_id <= 0 || side_node_id == anchor_id) {
                 continue;
             }
@@ -1308,17 +1352,24 @@ void PathPlanner::updateExploreGraphFromCandidates()
             side_node->yaw = yaw;
             side_node->stamp = now;
             side_node->valid = true;
+            const bool already_tracked_hole =
+                (side_node_id == pending_hole_node_id_) || isQueuedHoleNode(side_node_id);
+            bool stored_new_hole = false;
             const auto *pending_hole_node = findNodeById(pending_hole_node_id_);
             if (pending_hole_node_id_ <= 0 || !pending_hole_node || !pending_hole_node->valid) {
-                pending_hole_node_id_ = side_node_id;
-            } else if (side_node_id != pending_hole_node_id_ &&
-                       std::find(queued_hole_node_ids_.begin(), queued_hole_node_ids_.end(), side_node_id) ==
-                           queued_hole_node_ids_.end()) {
+                if (!already_tracked_hole) {
+                    stored_new_hole = true;
+                }
+                promoteHoleTargetToPending(side_node_id);
+            } else if (!already_tracked_hole) {
                 queued_hole_node_ids_.push_back(side_node_id);
+                stored_new_hole = true;
             }
-            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                                 "[hole] stored marker node=%d pending=%d queued=%zu",
-                                 side_node_id, pending_hole_node_id_, queued_hole_node_ids_.size());
+            if (stored_new_hole) {
+                RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+                                     "[hole] stored marker node=%d pending=%d queued=%zu",
+                                     side_node_id, pending_hole_node_id_, queued_hole_node_ids_.size());
+            }
 
             // Collapse nearby duplicate side-frontier nodes into one stable target.
             if (reuse_radius > 1e-6) {
