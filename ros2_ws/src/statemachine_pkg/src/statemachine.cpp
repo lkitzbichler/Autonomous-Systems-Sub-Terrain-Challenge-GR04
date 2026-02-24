@@ -66,6 +66,7 @@ StateMachine::StateMachine() : Node("state_machine_node")
     // Logging paths
     this->lantern_log_path_ = declare_parameter<std::string>("logging.lantern_log_path", "lanterns_log.csv");
     this->event_log_path_ = declare_parameter<std::string>("logging.event_log_path", "statemachine_events.log");
+    this->octomap_log_path_ = declare_parameter<std::string>("logging.octomap_log_path", "final_map.bt");
 
     // TOPIC PARAMETERS ###############################################################################
     this->topic_state_ = declare_parameter<std::string>("topics.topic_state", "statemachine/state");
@@ -230,6 +231,12 @@ void StateMachine::changeState(MissionStates new_state, const std::string &reaso
             }
             break;
         case MissionStates::DONE:
+            if (octree_) {
+                octree_->writeBinary(octomap_log_path_);
+                logEvent("[Map] Saved octomap to " + octomap_log_path_);
+                RCLCPP_INFO(this->get_logger(), "Saved octomap to %s", octomap_log_path_.c_str());
+            }
+            [[fallthrough]];
         case MissionStates::ERROR:
         case MissionStates::ABORTED:
             if (!node_controller.empty()) sendCommand(node_controller, Commands::HOLD);

@@ -131,6 +131,7 @@ private: // PARAMETERS
     // LOGGING
     std::string lantern_log_path_;          // File path for logging lantern detections (CSV format)
     std::string event_log_path_;            // File path for logging state machine events (plain text format)
+    std::string octomap_log_path_;          // File path for saving the final octomap
 
     // NODE ROLE INDICES (refer to entries in node_list_)
     int node_controller_index_{-1};         // Controller node index

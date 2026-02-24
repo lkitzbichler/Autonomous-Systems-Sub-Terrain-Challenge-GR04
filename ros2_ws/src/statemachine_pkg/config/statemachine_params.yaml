@@ -3,6 +3,7 @@ state_machine_node:
     logging:
       lantern_log_path: "lanterns_log.csv"
       event_log_path: "statemachine_events.log"
+      octomap_log_path: "final_map.bt"
     topics:
       topic_state: "statemachine/state"
       topic_cmd_: "statemachine/cmd"
