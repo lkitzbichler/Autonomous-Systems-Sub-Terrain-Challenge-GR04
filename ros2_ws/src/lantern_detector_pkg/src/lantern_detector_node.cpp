@@ -28,6 +28,7 @@ LanternDetectorNode::LanternDetectorNode(const rclcpp::NodeOptions& options)
   distance_threshold_ = this->declare_parameter("distance_threshold", 2.0);
   min_depth_ = this->declare_parameter("min_depth", 0.1);
   max_depth_ = this->declare_parameter("max_depth", 50.0);
+  min_num_sightings_ = this->declare_parameter("min_num_sightings", 50);
   marker_scale_ = this->declare_parameter("marker_scale", 0.5);
   marker_color_ = this->declare_parameter("marker_color", std::vector<double>{1.0, 1.0, 0.0, 1.0});
   heartbeat_topic_ = this->declare_parameter("heartbeat_topic", std::string("heartbeat"));
@@ -153,13 +154,8 @@ void LanternDetectorNode::update_lanterns(const geometry_msgs::msg::Point& new_p
     it->position.y = (it->position.y * it->count + new_pos.y) / (it->count + 1);
     it->position.z = (it->position.z * it->count + new_pos.z) / (it->count + 1);
     it->count++;
-    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000, 
-                         "Updated lantern at [%.2f, %.2f, %.2f] (Detections: %d)",
-                         it->position.x, it->position.y, it->position.z, it->count);
   } else {
     detected_lanterns_.push_back({new_pos, 1});
-    RCLCPP_INFO(this->get_logger(), "Found new lantern: [%.1f, %.1f, %.1f] (Total: %zu)", 
-                new_pos.x, new_pos.y, new_pos.z, detected_lanterns_.size());
   }
 }
 
@@ -172,6 +168,9 @@ void LanternDetectorNode::publish_lanterns() {
   visualization_msgs::msg::MarkerArray markers;
 
   for (size_t i = 0; i < detected_lanterns_.size(); ++i) {
+    if (detected_lanterns_[i].count < min_num_sightings_) {
+      continue; // Skip weak detections
+    }
     geometry_msgs::msg::Pose pose;
     pose.position = detected_lanterns_[i].position;
     pose.orientation.w = 1.0;

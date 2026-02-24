@@ -40,6 +40,7 @@ private:
   double distance_threshold_;
   double min_depth_;
   double max_depth_;
+  int min_num_sightings_;
   double marker_scale_;
   std::vector<double> marker_color_;
 
