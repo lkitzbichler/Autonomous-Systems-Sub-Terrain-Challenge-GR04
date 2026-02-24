@@ -9,6 +9,7 @@ state_machine_node:
       topic_heartbeat: "heartbeat"
 
       topic_lantern_detections: "detected_lanterns"
+      topic_lantern_counts: "detected_lanterns/counts"
       current_state_est: "current_state_est"
       topic_octomap: "octomap_binary"
 
@@ -19,8 +20,6 @@ state_machine_node:
       pub_state_loop_sec: 1.0
       boot_timeout_sec: 60.0
       takeoff_cmd_retry_sec: 1.5
-    lanterns:
-      lantern_merge_dist_m: 1.5
     checkpoints:
       positions:
         [-320.0, 9.0, 16.0]

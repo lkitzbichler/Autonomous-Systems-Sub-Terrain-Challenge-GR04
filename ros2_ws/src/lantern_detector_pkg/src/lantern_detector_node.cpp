@@ -22,6 +22,7 @@ LanternDetectorNode::LanternDetectorNode(const rclcpp::NodeOptions& options)
   const auto semantic_topic = this->declare_parameter("semantic_topic", "/Quadrotor/Sensors/SemanticCamera/image_raw");
   const auto depth_info_topic = this->declare_parameter("depth_info_topic", "/realsense/depth/camera_info");
   const auto output_topic = this->declare_parameter("output_topic", "detected_lanterns");
+  const auto count_topic = this->declare_parameter("count_topic", "detected_lanterns/counts");
   const auto marker_topic = this->declare_parameter("marker_topic", "lantern_markers");
   
   world_frame_ = this->declare_parameter("world_frame", "world");
@@ -38,6 +39,7 @@ LanternDetectorNode::LanternDetectorNode(const rclcpp::NodeOptions& options)
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
   lantern_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>(output_topic, 10);
+  lantern_counts_pub_ = this->create_publisher<std_msgs::msg::Int32MultiArray>(count_topic, 10);
   marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(marker_topic, 10);
   heartbeat_pub_ = this->create_publisher<statemachine_pkg::msg::Answer>(heartbeat_topic_, 10);
   heartbeat_timer_ = this->create_wall_timer(
@@ -164,6 +166,7 @@ void LanternDetectorNode::publish_lanterns() {
   geometry_msgs::msg::PoseArray pose_array;
   pose_array.header.stamp = now;
   pose_array.header.frame_id = world_frame_;
+  std_msgs::msg::Int32MultiArray count_array;
 
   visualization_msgs::msg::MarkerArray markers;
 
@@ -175,6 +178,7 @@ void LanternDetectorNode::publish_lanterns() {
     pose.position = detected_lanterns_[i].position;
     pose.orientation.w = 1.0;
     pose_array.poses.push_back(pose);
+    count_array.data.push_back(detected_lanterns_[i].count);
 
     visualization_msgs::msg::Marker m;
     m.header = pose_array.header;
@@ -193,6 +197,7 @@ void LanternDetectorNode::publish_lanterns() {
   }
 
   lantern_pub_->publish(pose_array);
+  lantern_counts_pub_->publish(count_array);
   marker_pub_->publish(markers);
 }
 }  // namespace lantern_detector

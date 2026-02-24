@@ -8,6 +8,7 @@
 #include "sensor_msgs/msg/camera_info.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "statemachine_pkg/msg/answer.hpp"
+#include "std_msgs/msg/int32_multi_array.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "visualization_msgs/msg/marker_array.hpp"
@@ -58,6 +59,7 @@ private:
   sensor_msgs::msg::CameraInfo::ConstSharedPtr depth_info_;
 
   rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr lantern_pub_;
+  rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr lantern_counts_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
   rclcpp::Publisher<statemachine_pkg::msg::Answer>::SharedPtr heartbeat_pub_;
   rclcpp::TimerBase::SharedPtr heartbeat_timer_;

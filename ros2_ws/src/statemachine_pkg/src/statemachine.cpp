@@ -63,8 +63,6 @@ StateMachine::StateMachine() : Node("state_machine_node")
     this->node_controller_index_ = declare_parameter<int>("node_roles.controller_index", -1);
     this->node_waypoint_index_ = declare_parameter<int>("node_roles.waypoint_index", -1);
     this->node_planner_index_ = declare_parameter<int>("node_roles.planner_index", -1);
-    // Lantern detections
-    this->min_lantern_dist_ = declare_parameter<double>("lanterns.lantern_merge_dist_m", 1.5);
     // Logging paths
     this->lantern_log_path_ = declare_parameter<std::string>("logging.lantern_log_path", "lanterns_log.csv");
     this->event_log_path_ = declare_parameter<std::string>("logging.event_log_path", "statemachine_events.log");
@@ -74,6 +72,7 @@ StateMachine::StateMachine() : Node("state_machine_node")
     this->topic_cmd_ = declare_parameter<std::string>("topics.topic_cmd_", "statemachine/cmd");
     this->topic_heartbeat_ = declare_parameter<std::string>("topics.topic_heartbeat", "statemachine/heartbeat");
     this->topic_lantern_detections_ = declare_parameter<std::string>("topics.topic_lantern_detections", "detected_lanterns");
+    this->topic_lantern_counts_ = declare_parameter<std::string>("topics.topic_lantern_counts", "detected_lanterns/counts");
     this->topic_current_state_est_ = declare_parameter<std::string>("topics.current_state_est", "current_state_est");
     this->topic_octomap_ = declare_parameter<std::string>("topics.topic_octomap", "octomap_binary");
     this->topic_viz_checkpoint = declare_parameter<std::string>("topics.topic_viz_checkpoint", "statemachine/viz/checkpoint");
@@ -88,6 +87,7 @@ StateMachine::StateMachine() : Node("state_machine_node")
     // Create Subscribers #############################################################################
     this->sub_heartbeat_ = this->create_subscription<statemachine_pkg::msg::Answer>(topic_heartbeat_, 10, std::bind(&StateMachine::handleAnswer, this, std::placeholders::_1));
     this->sub_lantern_detections_ = this->create_subscription<geometry_msgs::msg::PoseArray>(topic_lantern_detections_, 10, std::bind(&StateMachine::onLanternDetections, this, std::placeholders::_1));
+    this->sub_lantern_counts_ = this->create_subscription<std_msgs::msg::Int32MultiArray>(topic_lantern_counts_, 10, std::bind(&StateMachine::onLanternCounts, this, std::placeholders::_1));
     this->sub_current_state_est_ = this->create_subscription<nav_msgs::msg::Odometry>(topic_current_state_est_, 10, std::bind(&StateMachine::onCurrentStateEst, this, std::placeholders::_1));
     this->sub_octomap_ = this->create_subscription<octomap_msgs::msg::Octomap>(topic_octomap_, 1, std::bind(&StateMachine::onOctomap, this, std::placeholders::_1));
 
@@ -406,93 +406,42 @@ void StateMachine::onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg)
  */
 void StateMachine::onLanternDetections(const geometry_msgs::msg::PoseArray::SharedPtr msg)
 {
-    // Step 1: Validate input message
     if (!msg) {
-        return; // Defensive: ignore null messages
-    }
-
-    if (msg->poses.empty()) {
-        logEvent("[Lantern]: empty pose array received"); // Keep a trace of empty detections
         return;
     }
 
-    // Step 2: Process each detection and update/insert a track
-    for (const auto &pose : msg->poses) {
-        bool is_new = false;
-        int id = -1;
-        geometry_msgs::msg::Point mean;
-        size_t count = 0;
+    detected_lantern_count_ = msg->poses.size();
 
-        // Associate detection with existing tracks or create a new one
-        associateLantern(pose.position, is_new, id, mean, count);
+    // Why: Keep the detector topic as the only source of truth for lantern identity/count.
+    if (detected_lantern_count_ == 0) {
+        logEvent("[Lantern]: empty pose array received");
+    }
 
-        // Step 4: Build a stamped pose for CSV logging
+    for (size_t i = 0; i < msg->poses.size(); ++i) {
         geometry_msgs::msg::PoseStamped stamped;
         stamped.header = msg->header;
-        stamped.pose.position = mean;
+        stamped.pose.position = msg->poses[i].position;
         stamped.pose.orientation.w = 1.0;
 
-        // Persist track info to CSV
+        const int id = static_cast<int>(i) + 1;
+        const size_t count = (i < detected_lantern_samples_.size()) ? detected_lantern_samples_[i] : 1U;
         logLanternPose(stamped, id, count);
-
-        // Step 5: Track log
-        if (is_new) {
-            logEvent("[Lantern] found lantern " + std::to_string(id) + " 1 times");
-        } else {
-            logEvent("[Lantern] found lantern " + std::to_string(id) + " " + std::to_string(count) + " times");
-        }
+        logEvent("[Lantern] detector reports lantern " + std::to_string(id) + " " + std::to_string(count) + " times");
     }
 }
 
-/**
- * @brief Associate a detection with the nearest track or create a new track.
- * @param pos Detected lantern position.
- * @param is_new True if a new track was created.
- * @param mean_out Updated mean position of the associated track.
- * @param count_out Updated sample count for the associated track.
- */
-void StateMachine::associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, int &id_out, geometry_msgs::msg::Point &mean_out, size_t &count_out)
+void StateMachine::onLanternCounts(const std_msgs::msg::Int32MultiArray::SharedPtr msg)
 {
-    // Step 1: Find nearest existing track within merge distance
-    int best_index = -1;
-    double best_dist = std::numeric_limits<double>::max();
-
-    for (size_t i = 0; i < lantern_tracks_.size(); ++i) {
-        const double dist = distance3(lantern_tracks_[i].mean, pos);
-        if (dist <= min_lantern_dist_ && dist < best_dist) {
-            best_dist = dist;
-            best_index = static_cast<int>(i);
-        }
-    }
-
-    // Step 2: Create a new track if none is close enough
-    if (best_index < 0) {
-        Lantern track;
-        track.id = static_cast<int>(lantern_tracks_.size()) + 1; // Compact new id
-        track.mean = pos;
-        track.samples.push_back(pos);
-        track.count = 1;
-        lantern_tracks_.push_back(track);
-
-        is_new = true;
-        id_out = track.id;
-        mean_out = pos;
-        count_out = track.count;
+    if (!msg) {
         return;
     }
 
-    // Step 3: Update running mean and sample count for matched track
-    auto &track = lantern_tracks_[static_cast<size_t>(best_index)];
-    track.mean.x = (track.mean.x * track.count + pos.x) / (track.count + 1);
-    track.mean.y = (track.mean.y * track.count + pos.y) / (track.count + 1);
-    track.mean.z = (track.mean.z * track.count + pos.z) / (track.count + 1);
-    track.count++;
-    track.samples.push_back(pos);
-
-    is_new = false;
-    id_out = track.id;
-    mean_out = track.mean;
-    count_out = track.count;
+    detected_lantern_samples_.clear();
+    detected_lantern_samples_.reserve(msg->data.size());
+    for (const auto value : msg->data) {
+        // Why: Clamp invalid negatives to keep logging/state checks robust against malformed input.
+        detected_lantern_samples_.push_back(value > 0 ? static_cast<std::size_t>(value) : 0U);
+    }
 }
 
 // #################################################################################################
@@ -690,7 +639,7 @@ void StateMachine::handleFlagEvents()
 
     // Step 3: Mission target reached -> return home immediately.
     if (state_ == MissionStates::EXPLORING) {
-        if (lantern_tracks_.size() >= kRequiredLanternCount) {
+        if (detected_lantern_count_ >= kRequiredLanternCount) {
             changeState(MissionStates::RETURN_HOME, "lantern goal reached");
         }
     }

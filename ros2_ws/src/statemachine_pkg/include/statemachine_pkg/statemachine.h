@@ -21,6 +21,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <octomap_msgs/msg/octomap.hpp>
+#include <std_msgs/msg/int32_multi_array.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
@@ -47,21 +48,14 @@ private: // VARIABLES and STRUCTS
         AnswerStates last_state{AnswerStates::UNKNOWN};
     };
 
-    /// Helper struct to track lantern detections
-    struct Lantern{
-        int id{0};
-        geometry_msgs::msg::Point mean;
-        std::vector<geometry_msgs::msg::Point> samples;
-        size_t count{0};
-    };
-
     MissionStates state_ {MissionStates::WAITING}; // Current mission state
     rclcpp::Time state_enter_time_{0, 0, RCL_ROS_TIME}; // Time when the current state was entered
     rclcpp::Time last_takeoff_cmd_time_{0, 0, RCL_ROS_TIME}; // Last periodic TAKEOFF command dispatch
     Commands last_cmd_ {Commands::NONE}; // Last command sent (for logging)
 
     std::vector<NodeInfo> nodes_; // List of nodes to monitor for heartbeats
-    std::vector<Lantern> lantern_tracks_; // List of tracked lanterns with their positions and counts
+    std::size_t detected_lantern_count_{0}; // Latest detector-reported lantern count
+    std::vector<std::size_t> detected_lantern_samples_; // Latest detector-reported sightings per lantern
     std::vector<Eigen::Vector3d> checkpoint_positions_; // List of checkpoint positions for visualization
     std::vector<Eigen::Vector3d> checkpoint_positions_base_; // Static checkpoints from params (without takeoff start)
     
@@ -91,6 +85,7 @@ private: // SUBSCRIBERS, PUBLISHERS, TIMERS
     // Subscribers
     rclcpp::Subscription<statemachine_pkg::msg::Answer>::SharedPtr sub_heartbeat_;
     rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr sub_lantern_detections_;
+    rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr sub_lantern_counts_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_current_state_est_;
     rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr sub_octomap_;
 
@@ -117,9 +112,6 @@ private: // PARAMETERS
     double landing_min_hit_fraction_;       // Minimum ratio of ray hits in the sampled disk
     bool landing_use_start_fallback_;       // Use start-checkpoint-based fallback if map ground estimate fails
 
-    // LANTERNS
-    double min_lantern_dist_;               // Minimum distance to consider a new lantern detection as the same as an existing track and merge it
-
     // TOPICS
     // State
     std::string topic_state_;               // publish SM state
@@ -130,6 +122,7 @@ private: // PARAMETERS
 
     // Lanterns
     std::string topic_lantern_detections_;  // subscribe to lantern detections
+    std::string topic_lantern_counts_;      // subscribe to detector counts aligned with detections
 
     // Vizualization
     std::string topic_viz_checkpoint;       // publish checkpoint positions for visualization
@@ -156,8 +149,8 @@ public: //CONSTRUCTOR & METHODS
     void handleAnswer(const statemachine_pkg::msg::Answer::SharedPtr msg);  // Handle incoming answers/heartbeats from nodes to update their alive status
 
     void onLanternDetections(const geometry_msgs::msg::PoseArray::SharedPtr msg);   // Handle lantern detections
+    void onLanternCounts(const std_msgs::msg::Int32MultiArray::SharedPtr msg);       // Handle detector sightings per lantern
     void onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg); // Update local octomap cache
-    void associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, int &id_out, geometry_msgs::msg::Point &mean_out, size_t &count_out);  // Associate a new lantern detection with existing tracks or create a new track
     void onCurrentStateEst(const nav_msgs::msg::Odometry::SharedPtr msg); // Update current position from state estimate
 
     void onTimer(); // Timer callback for periodic tasks like publishing state and checking node heartbeats
