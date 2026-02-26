@@ -174,7 +174,7 @@ sudo apt install -y git git-lfs curl build-essential
 
 Install required ros2 packages
 ```bash
-sudo apt install ros-jazzy-octomap-server ros-jazzy-pcl-ros ros-jazzy-depth-image-proc
+sudo apt install ros-jazzy-octomap-server ros-jazzy-pcl-ros ros-jazzy-depth-image-proc octovis
 ```
 
 ### 2.1.1 Clone Repository
