@@ -10,19 +10,19 @@ BasicPlanner::BasicPlanner(const rclcpp::Node::SharedPtr& node)
       current_pose_(Eigen::Affine3d::Identity()),
       current_velocity_(Eigen::Vector3d::Zero()),
       current_angular_velocity_(Eigen::Vector3d::Zero()),
-      max_v_(0.2),
-      max_a_(0.2),
-      max_ang_v_(0.0),
-      max_ang_a_(0.0) {
-    // declare parameters
-    node_->declare_parameter("max_v", max_v_);
-    node_->declare_parameter("max_a", max_a_);
+      max_speed_mps_(0.2),
+      max_accel_mps2_(0.2),
+      max_angular_speed_radps_(0.0),
+      max_angular_accel_radps2_(0.0) {
+    // declare parameters (names kept for backwards compatibility)
+    node_->declare_parameter("max_v", max_speed_mps_);
+    node_->declare_parameter("max_a", max_accel_mps2_);
     node_->declare_parameter<int>("stop_index", -1);
     node_->declare_parameter("waypoints", std::vector<double>());
 
     // get parameters
-    node_->get_parameter("max_v", max_v_);
-    node_->get_parameter("max_a", max_a_);
+    node_->get_parameter("max_v", max_speed_mps_);
+    node_->get_parameter("max_a", max_accel_mps2_);
 
     // Publishers
     pub_markers_ = node_->create_publisher<visualization_msgs::msg::MarkerArray>("trajectory_markers", 10);
@@ -35,7 +35,12 @@ BasicPlanner::BasicPlanner(const rclcpp::Node::SharedPtr& node)
         "current_state_est", 10, std::bind(&BasicPlanner::uavOdomCallback, this, std::placeholders::_1));
 }
 
-// Callback to get current Pose of UAV
+/**
+ * @brief ROS odometry callback that updates the planner's state.
+ *
+ * @param odom Shared pointer to the odometry message containing the UAV
+ *             pose and velocity.
+ */
 void BasicPlanner::uavOdomCallback(const nav_msgs::msg::Odometry::SharedPtr odom) {
     // store current position in our planner
     tf2::fromMsg(odom->pose.pose, current_pose_);
@@ -48,31 +53,32 @@ void BasicPlanner::uavOdomCallback(const nav_msgs::msg::Odometry::SharedPtr odom
 }
 
 // Method to set maximum speed.
-void BasicPlanner::setMaxSpeed(const double max_v) { max_v_ = max_v; }
+void BasicPlanner::setMaxSpeed(const double max_speed_mps) { max_speed_mps_ = max_speed_mps; }
 
 // Plans a trajectory from the current position to a goal position and velocity
 // we neglect attitude here for simplicity
 bool BasicPlanner::planTrajectory(mav_trajectory_generation::Trajectory* trajectory) {
-    // Step 0: Require a valid current pose
+    // require a valid current pose
     if (!has_current_pose_) {
         RCLCPP_WARN(node_->get_logger(), "No valid odometry yet, cannot plan trajectory.");
         return false;
     }
 
-    // Step 1: Load waypoints and stop index from parameters
-    std::vector<double> waypoint_list;
-    int stop_index = -1;
-    node_->get_parameter("stop_index", stop_index);
-    node_->get_parameter("waypoints", waypoint_list);
+    // load waypoints and stop index from parameters
+    std::vector<double> waypoint_flat_list;
+    int stop_waypoint_index = -1;
+    node_->get_parameter("stop_index", stop_waypoint_index);
+    node_->get_parameter("waypoints", waypoint_flat_list);
 
-    // Step 2: Delegate to explicit waypoint planner
-    return planTrajectoryWithWaypoints(waypoint_list, stop_index, trajectory);
+    // delegate to explicit waypoint planner
+    return planTrajectoryWithWaypoints(waypoint_flat_list, stop_waypoint_index, trajectory);
 }
 
 // Plans a trajectory from the current position using an explicit waypoint list
-bool BasicPlanner::planTrajectoryWithWaypoints(const std::vector<double>& waypoint_list, int stop_index,
+bool BasicPlanner::planTrajectoryWithWaypoints(const std::vector<double>& waypoint_flat_list,
+                                               int stop_waypoint_index,
                                                mav_trajectory_generation::Trajectory* trajectory) {
-    // Step 0: Require a valid current pose
+    // require a valid current pose
     if (!has_current_pose_) {
         RCLCPP_WARN(node_->get_logger(), "No valid odometry yet, cannot plan trajectory.");
         return false;
@@ -104,21 +110,21 @@ bool BasicPlanner::planTrajectoryWithWaypoints(const std::vector<double>& waypoi
 
     /******* Configure trajectory (intermediate waypoints) *******/
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    if (waypoint_list.size() < 3 || (waypoint_list.size() % 3) != 0) {
-        RCLCPP_ERROR(node_->get_logger(), "Invalid waypoints param (size=%zu)", waypoint_list.size());
+    if (waypoint_flat_list.size() < 3 || (waypoint_flat_list.size() % 3) != 0) {
+        RCLCPP_ERROR(node_->get_logger(), "Invalid waypoints param (size=%zu)", waypoint_flat_list.size());
         return false;
     }
 
-    const size_t waypoint_count = waypoint_list.size() / 3;
+    const size_t waypoint_count = waypoint_flat_list.size() / 3;
     for (size_t i = 0; i + 1 < waypoint_count; ++i) {
         mav_trajectory_generation::Vertex middle(dimension);
 
         Eigen::Vector3d pos;
-        pos << waypoint_list[i * 3], waypoint_list[i * 3 + 1], waypoint_list[i * 3 + 2];
+        pos << waypoint_flat_list[i * 3], waypoint_flat_list[i * 3 + 1], waypoint_flat_list[i * 3 + 2];
 
         middle.addConstraint(mav_trajectory_generation::derivative_order::POSITION, pos);
 
-        if (static_cast<int>(i) == stop_index) {
+        if (static_cast<int>(i) == stop_waypoint_index) {
             middle.addConstraint(mav_trajectory_generation::derivative_order::VELOCITY,
                                  Eigen::Vector3d::Zero());
             middle.addConstraint(mav_trajectory_generation::derivative_order::ACCELERATION,
@@ -130,8 +136,8 @@ bool BasicPlanner::planTrajectoryWithWaypoints(const std::vector<double>& waypoi
 
     /******* Configure end point *******/
     Eigen::Vector3d goal_pos;
-    goal_pos << waypoint_list[(waypoint_count - 1) * 3], waypoint_list[(waypoint_count - 1) * 3 + 1],
-        waypoint_list[(waypoint_count - 1) * 3 + 2];
+    goal_pos << waypoint_flat_list[(waypoint_count - 1) * 3],
+        waypoint_flat_list[(waypoint_count - 1) * 3 + 1], waypoint_flat_list[(waypoint_count - 1) * 3 + 2];
 
     // set end point constraints to desired position and set all derivatives to zero
     end.makeStartOrEnd(goal_pos, derivative_to_optimize);
@@ -139,7 +145,7 @@ bool BasicPlanner::planTrajectoryWithWaypoints(const std::vector<double>& waypoi
     // set end point's velocity to be constrained to desired velocity
     end.addConstraint(mav_trajectory_generation::derivative_order::VELOCITY, Eigen::Vector3d::Zero());
 
-    if (stop_index == static_cast<int>(waypoint_count - 1)) {
+    if (stop_waypoint_index == static_cast<int>(waypoint_count - 1)) {
         end.addConstraint(mav_trajectory_generation::derivative_order::ACCELERATION, Eigen::Vector3d::Zero());
     }
 
@@ -148,7 +154,7 @@ bool BasicPlanner::planTrajectoryWithWaypoints(const std::vector<double>& waypoi
 
     // estimate initial segment times
     std::vector<double> segment_times;
-    segment_times = estimateSegmentTimes(vertices, max_v_, max_a_);
+    segment_times = estimateSegmentTimes(vertices, max_speed_mps_, max_accel_mps2_);
 
     // Set up polynomial solver with default params
     mav_trajectory_generation::NonlinearOptimizationParameters parameters;
@@ -159,8 +165,9 @@ bool BasicPlanner::planTrajectoryWithWaypoints(const std::vector<double>& waypoi
     opt.setupFromVertices(vertices, segment_times, derivative_to_optimize);
 
     // constrain velocity and acceleration
-    opt.addMaximumMagnitudeConstraint(mav_trajectory_generation::derivative_order::VELOCITY, max_v_);
-    opt.addMaximumMagnitudeConstraint(mav_trajectory_generation::derivative_order::ACCELERATION, max_a_);
+    opt.addMaximumMagnitudeConstraint(mav_trajectory_generation::derivative_order::VELOCITY, max_speed_mps_);
+    opt.addMaximumMagnitudeConstraint(mav_trajectory_generation::derivative_order::ACCELERATION,
+                                      max_accel_mps2_);
 
     // solve trajectory
     opt.optimize();
@@ -186,10 +193,10 @@ bool BasicPlanner::planTrajectory(const Eigen::VectorXd& start_pos, const Eigen:
 bool BasicPlanner::publishTrajectory(const mav_trajectory_generation::Trajectory& trajectory) {
     // send trajectory as markers to display them in RVIZ
     visualization_msgs::msg::MarkerArray markers;
-    double distance = 0.2;  // distance between markers; 0.0 to disable
+    double marker_spacing_m = 0.2;  // spacing between orientation markers; 0.0 to disable
     std::string frame_id = "world";
 
-    drawMavTrajectory(trajectory, distance, frame_id, &markers);
+    drawMavTrajectory(trajectory, marker_spacing_m, frame_id, &markers);
     pub_markers_->publish(markers);
 
     // send trajectory to be executed on UAV
@@ -202,8 +209,8 @@ bool BasicPlanner::publishTrajectory(const mav_trajectory_generation::Trajectory
     return true;
 }
 
-void BasicPlanner::drawMavTrajectory(const mav_trajectory_generation::Trajectory& trajectory, double distance,
-                                     const std::string& frame_id,
+void BasicPlanner::drawMavTrajectory(const mav_trajectory_generation::Trajectory& trajectory,
+                                     double marker_spacing_m, const std::string& frame_id,
                                      visualization_msgs::msg::MarkerArray* marker_array) {
     // sample trajectory
     mav_msgs::EigenTrajectoryPoint::Vector trajectory_points;
@@ -228,16 +235,16 @@ void BasicPlanner::drawMavTrajectory(const mav_trajectory_generation::Trajectory
     line_strip.scale.x = 0.01;
     line_strip.ns = "path";
 
-    double accumulated_distance = 0.0;
+    double accumulated_distance_m = 0.0;
     Eigen::Vector3d last_position = Eigen::Vector3d::Zero();
-    double scale = 0.3;
-    double diameter = 0.3;
+    double axis_scale_m = 0.3;
+    double axis_diameter_m = 0.3;
     for (size_t i = 0; i < trajectory_points.size(); ++i) {
         const mav_msgs::EigenTrajectoryPoint& point = trajectory_points[i];
 
-        accumulated_distance += (last_position - point.position_W).norm();
-        if (accumulated_distance > distance) {
-            accumulated_distance = 0.0;
+        accumulated_distance_m += (last_position - point.position_W).norm();
+        if (accumulated_distance_m > marker_spacing_m) {
+            accumulated_distance_m = 0.0;
             mav_msgs::EigenMavState mav_state;
             mav_msgs::EigenMavStateFromEigenTrajectoryPoint(point, &mav_state);
             mav_state.orientation_W_B = point.orientation_W_B;
@@ -258,9 +265,9 @@ void BasicPlanner::drawMavTrajectory(const mav_trajectory_generation::Trajectory
             arrow_marker.points.resize(2);
             arrow_marker.points[0] = tf2::toMsg(mav_state.position_W);
             arrow_marker.points[1] = tf2::toMsg(Eigen::Vector3d(
-                mav_state.position_W + mav_state.orientation_W_B * Eigen::Vector3d::UnitX() * scale));
-            arrow_marker.scale.x = diameter * 0.1;
-            arrow_marker.scale.y = diameter * 0.2;
+                mav_state.position_W + mav_state.orientation_W_B * Eigen::Vector3d::UnitX() * axis_scale_m));
+            arrow_marker.scale.x = axis_diameter_m * 0.1;
+            arrow_marker.scale.y = axis_diameter_m * 0.2;
             arrow_marker.scale.z = 0;
 
             // y axis
@@ -276,9 +283,9 @@ void BasicPlanner::drawMavTrajectory(const mav_trajectory_generation::Trajectory
             arrow_marker_y.points.resize(2);
             arrow_marker_y.points[0] = tf2::toMsg(mav_state.position_W);
             arrow_marker_y.points[1] = tf2::toMsg(Eigen::Vector3d(
-                mav_state.position_W + mav_state.orientation_W_B * Eigen::Vector3d::UnitY() * scale));
-            arrow_marker_y.scale.x = diameter * 0.1;
-            arrow_marker_y.scale.y = diameter * 0.2;
+                mav_state.position_W + mav_state.orientation_W_B * Eigen::Vector3d::UnitY() * axis_scale_m));
+            arrow_marker_y.scale.x = axis_diameter_m * 0.1;
+            arrow_marker_y.scale.y = axis_diameter_m * 0.2;
             arrow_marker_y.scale.z = 0;
 
             // z axis
@@ -294,9 +301,9 @@ void BasicPlanner::drawMavTrajectory(const mav_trajectory_generation::Trajectory
             arrow_marker_z.points.resize(2);
             arrow_marker_z.points[0] = tf2::toMsg(mav_state.position_W);
             arrow_marker_z.points[1] = tf2::toMsg(Eigen::Vector3d(
-                mav_state.position_W + mav_state.orientation_W_B * Eigen::Vector3d::UnitZ() * scale));
-            arrow_marker_z.scale.x = diameter * 0.1;
-            arrow_marker_z.scale.y = diameter * 0.2;
+                mav_state.position_W + mav_state.orientation_W_B * Eigen::Vector3d::UnitZ() * axis_scale_m));
+            arrow_marker_z.scale.x = axis_diameter_m * 0.1;
+            arrow_marker_z.scale.y = axis_diameter_m * 0.2;
             arrow_marker_z.scale.z = 0;
 
             // append to marker array
