@@ -63,6 +63,7 @@ For use of git, python, ros2 and a successfull compilation of c++ the following 
 #### 1. Installation of git and git-lfs
 ```bash
 sudo apt install -y git git-lfs
+git lfs install
 ```
 
 #### 2. Installation of ROS2 Jazzy
@@ -108,6 +109,21 @@ rosdep update
 Install **Unity Hub**, then install the required **Unity Editor version** for this project.
 
 1. Download and install Unity Hub
+```bash
+sudo apt update
+sudo apt install -y curl ca-certificates gnupg
+
+sudo install -d /etc/apt/keyrings
+curl -fsSL https://hub.unity3d.com/linux/keys/public \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/unityhub.gpg
+
+echo "deb [signed-by=/etc/apt/keyrings/unityhub.gpg] https://hub.unity3d.com/linux/repos/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/unityhub.list > /dev/null
+
+sudo apt update
+sudo apt install -y unityhub
+```
+
 2. In Unity Hub → **Installs** → **Install Editor**
 3. Install **Unity Editor <VERSION>** (plus optional modules you need, e.g. Windows/Linux Build Support)
 4. Open the project by selecting the repository folder in Unity Hub (**Add** → select repo root)

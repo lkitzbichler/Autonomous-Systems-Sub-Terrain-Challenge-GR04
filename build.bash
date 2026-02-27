@@ -25,11 +25,17 @@ sudo apt-get install -y --no-install-recommends \
   ros-jazzy-visualization-msgs \
   ros-jazzy-depth-image-proc \
   octovis \
+  libgoogle-glog-dev \
+  libnlopt-dev \
   libgflags-dev
 
 echo "[1/4] Building colcon workspace..."
 cd "${ROS_WS}"
-colcon build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+colcon build \
+  --build-base "${ROS_WS}/build" \
+  --install-base "${ROS_WS}/install" \
+  --log-base "${ROS_WS}/log" \
+  --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 echo "Build OK."
 
 # echo "[2/4] Ensuring destination exists..."
