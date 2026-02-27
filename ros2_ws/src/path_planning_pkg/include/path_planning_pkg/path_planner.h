@@ -1,3 +1,8 @@
+/**
+ * @file path_planner.h
+ * @brief Declaration of the PathPlanner ROS2 node and related types.
+ */
+
 #pragma once
 
 #include <cstddef>
@@ -25,12 +30,26 @@ namespace octomap {
 class OcTree;
 }
 
+/**
+ * @class PathPlanner
+ * @brief ROS2 node implementing exploration, graph maintenance and trajectory
+ * planning logic.
+ *
+ * The node consumes odometry and octomap data, maintains an internal graph of
+ * visited and frontier locations, and generates short‑term trajectories for a
+ * vehicle to follow.  It integrates with an external state machine via
+ * heartbeat messages and accepts high‑level commands.
+ */
 class PathPlanner : public rclcpp::Node {
    public:  // PROTOCOL TYPES
     using Commands = statemachine_pkg::protocol::Commands;
     using AnswerStates = statemachine_pkg::protocol::AnswerStates;
 
    private:  // INTERNAL TYPES
+    /**
+     * @enum PlannerMode
+     * @brief High‑level mode of the planner state machine.
+     */
     enum class PlannerMode : uint8_t {
         IDLE = 0,
         TRANSIT_RECORD = 1,
@@ -41,14 +60,26 @@ class PathPlanner : public rclcpp::Node {
         ABORTED = 6
     };
 
+    /**
+     * @struct TransitNode
+     * @brief Simple breadcrumb captured during transit_record mode.
+     */
     struct TransitNode {
         int id{0};
         geometry_msgs::msg::Point position{};
         rclcpp::Time stamp{0, 0, RCL_ROS_TIME};
     };
 
+    /**
+     * @enum GraphNodeStatus
+     * @brief Exploration graph node visit state.
+     */
     enum class GraphNodeStatus : uint8_t { UNVISITED = 0, VISITED = 1, FRONTIER = 2, DEAD_END = 3 };
 
+    /**
+     * @struct GraphNode
+     * @brief Persistent node stored in the exploration graph.
+     */
     struct GraphNode {
         int id{0};
         geometry_msgs::msg::Point position{};
@@ -62,6 +93,10 @@ class PathPlanner : public rclcpp::Node {
         std::size_t observations{1};
     };
 
+    /**
+     * @struct GraphEdge
+     * @brief Undirected connection between two graph nodes.
+     */
     struct GraphEdge {
         int from_id{0};
         int to_id{0};
@@ -70,8 +105,16 @@ class PathPlanner : public rclcpp::Node {
         bool valid{true};
     };
 
+    /**
+     * @enum CandidateStatus
+     * @brief Result of probing a direction in the map.
+     */
     enum class CandidateStatus : uint8_t { FREE = 0, BLOCKED = 1, UNKNOWN = 2 };
 
+    /**
+     * @struct CandidatePoint
+     * @brief A single sampled direction for exploration.
+     */
     struct CandidatePoint {
         geometry_msgs::msg::Point point{};
         double rel_yaw_deg{0.0};
@@ -243,13 +286,37 @@ class PathPlanner : public rclcpp::Node {
     ~PathPlanner() override;
 
    private:  // CALLBACKS
+    /**
+     * @brief Process an incoming command from the state machine.
+     * @param msg shared pointer to the command message.
+     */
     void onCommand(const statemachine_pkg::msg::Command::SharedPtr msg);
+    /**
+     * @brief Handle a state string published by the state machine.
+     * @param msg shared pointer to the state message.
+     */
     void onState(const std_msgs::msg::String::SharedPtr msg);
+    /**
+     * @brief Callback for odometry updates.
+     * @param msg shared pointer to the odometry message.
+     */
     void onOdometry(const nav_msgs::msg::Odometry::SharedPtr msg);
+    /**
+     * @brief Receive and convert an octomap message.
+     * @param msg shared pointer to the octomap.
+     */
     void onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg);
+    /**
+     * @brief Periodic timer callback used to drive planning operations.
+     */
     void onTimer();
 
    private:  // HELPERS
+    /**
+     * @brief Change the current planner mode.
+     * @param new_mode target mode.
+     * @param reason human-readable explanation for the log.
+     */
     void changeMode(PlannerMode new_mode, const std::string& reason);
     void updateTransitGateFromState(const std::string& sm_state);
     void tryRecordTransitNode();

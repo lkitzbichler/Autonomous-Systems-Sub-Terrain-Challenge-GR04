@@ -17,11 +17,21 @@
 
 namespace {
 
-double distance3(const geometry_msgs::msg::Point& a, const geometry_msgs::msg::Point& b) {
-    const double dx = a.x - b.x;
-    const double dy = a.y - b.y;
-    const double dz = a.z - b.z;
-    return std::sqrt(dx * dx + dy * dy + dz * dz);
+/**
+ * @brief Compute the Euclidean distance between two 3‑D points.
+ *
+ * This helper is used for spatial reasoning throughout the planner.  Using a
+ * descriptive name and explicit component variables improves readability.
+ *
+ * @param point_a First coordinate in meters.
+ * @param point_b Second coordinate in meters.
+ * @return double Distance between the points in meters.
+ */
+double euclideanDistance(const geometry_msgs::msg::Point& point_a, const geometry_msgs::msg::Point& point_b) {
+    const double delta_x = point_a.x - point_b.x;
+    const double delta_y = point_a.y - point_b.y;
+    const double delta_z = point_a.z - point_b.z;
+    return std::sqrt(delta_x * delta_x + delta_y * delta_y + delta_z * delta_z);
 }
 
 }  // namespace
@@ -30,6 +40,13 @@ double distance3(const geometry_msgs::msg::Point& a, const geometry_msgs::msg::P
 // Constructor / Destructor
 // #################################################################################################
 
+/**
+ * @brief Construct a new PathPlanner node instance.
+ *
+ * Reads parameters, advertises publishers, subscribes to topics and starts
+ * the regular timer used for planning.  Keeping the constructor lightweight
+ * avoids blocking the ROS executor.
+ */
 PathPlanner::PathPlanner() : rclcpp::Node("path_planner") {
     RCLCPP_INFO(this->get_logger(), "[][PathPlanner]: Node startup.");
 
@@ -150,12 +167,23 @@ PathPlanner::PathPlanner() : rclcpp::Node("path_planner") {
                 topic_state_.c_str());
 }
 
+/**
+ * @brief Destructor logs shutdown and lets ROS clean up resources.
+ */
 PathPlanner::~PathPlanner() { RCLCPP_INFO(this->get_logger(), "[][PathPlanner]: Shutdown."); }
 
 // #################################################################################################
 // Callbacks
 // #################################################################################################
 
+/**
+ * @brief Process incoming mission command message.
+ *
+ * Performs validation (target match, staleness), updates internal state and
+ * changes the planner mode when appropriate.
+ *
+ * @param msg Received command pointer, may be nullptr.
+ */
 void PathPlanner::onCommand(const statemachine_pkg::msg::Command::SharedPtr msg) {
     // Step 1: Validate message and target
     if (!msg) {
@@ -218,6 +246,11 @@ void PathPlanner::onCommand(const statemachine_pkg::msg::Command::SharedPtr msg)
     }
 }
 
+/**
+ * @brief Cache state machine status and update transit recording gate.
+ *
+ * @param msg Shared pointer to state string message.
+ */
 void PathPlanner::onState(const std_msgs::msg::String::SharedPtr msg) {
     // Step 1: Validate and cache state text
     if (!msg) {
@@ -229,6 +262,12 @@ void PathPlanner::onState(const std_msgs::msg::String::SharedPtr msg) {
     updateTransitGateFromState(statemachine_state_);
 }
 
+/**
+ * @brief Handle new odometry data, cache it and optionally record transit
+ * breadcrumb nodes.
+ *
+ * @param msg Latest odometry message pointer.
+ */
 void PathPlanner::onOdometry(const nav_msgs::msg::Odometry::SharedPtr msg) {
     // Step 1: Validate and cache latest odometry
     if (!msg) {
@@ -257,6 +296,14 @@ void PathPlanner::onOdometry(const nav_msgs::msg::Odometry::SharedPtr msg) {
     }
 }
 
+/**
+ * @brief Convert incoming octomap message to internal octree representation.
+ *
+ * Performs basic validation (binary flag and frame check) and updates the
+ * map timestamp used for freshness checks.
+ *
+ * @param msg Pointer to incoming octomap message.
+ */
 void PathPlanner::onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg) {
     // Step 1: Validate input and basic metadata.
     if (!msg) {
@@ -308,6 +355,12 @@ void PathPlanner::onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg) {
     }
 }
 
+/**
+ * @brief Periodic timer handler invoked at loop_period_sec_ rate.
+ *
+ * Responsible for quality checks, heartbeat publication, candidate updates,
+ * branch detection and local planning/trajectory output.
+ */
 void PathPlanner::onTimer() {
     // Step 1: Surface degraded input quality in active planner modes.
     const bool active_mode = (mode_ == PlannerMode::EXPLORE || mode_ == PlannerMode::BACKTRACK ||
@@ -344,6 +397,12 @@ void PathPlanner::onTimer() {
 // Helpers
 // #################################################################################################
 
+/**
+ * @brief Transition internal planner mode and reset mode‑specific state.
+ *
+ * @param new_mode Target mode.
+ * @param reason Explanation logged for debugging.
+ */
 void PathPlanner::changeMode(PlannerMode new_mode, const std::string& reason) {
     if (mode_ == new_mode) {
         return;
@@ -425,7 +484,7 @@ void PathPlanner::tryRecordTransitNode() {
     // Step 1: Enforce spacing against the last accepted transit graph node.
     if (last_transit_graph_node_id_ > 0) {
         const auto* last_node = findNodeById(last_transit_graph_node_id_);
-        if (last_node && distance3(last_node->position, pos) < spacing_m) {
+        if (last_node && euclideanDistance(last_node->position, pos) < spacing_m) {
             return;
         }
     }
@@ -459,6 +518,9 @@ void PathPlanner::tryRecordTransitNode() {
                          last_transit_graph_node_id_);
 }
 
+/**
+ * @brief Assemble and publish a heartbeat message containing the node state.
+ */
 void PathPlanner::publishHeartbeat() {
     statemachine_pkg::msg::Answer hb;
     hb.node_name = this->get_name();
@@ -476,6 +538,10 @@ void PathPlanner::publishHeartbeat() {
     pub_heartbeat_->publish(hb);
 }
 
+/**
+ * @brief Send a heartbeat with state DONE and an information code.
+ * @param info_code Short string indicating the reason for completion.
+ */
 void PathPlanner::publishDone(const std::string& info_code) {
     statemachine_pkg::msg::Answer msg;
     msg.node_name = this->get_name();
@@ -488,6 +554,9 @@ void PathPlanner::publishDone(const std::string& info_code) {
     last_heartbeat_time_ = now;
 }
 
+/**
+ * @brief Generate visualization markers for the internal exploration graph.
+ */
 void PathPlanner::publishGraphMarkers() {
     if (!pub_graph_markers_) {
         return;
@@ -581,6 +650,10 @@ void PathPlanner::publishGraphMarkers() {
     pub_graph_markers_->publish(array);
 }
 
+/**
+ * @brief Produce a set of directional candidates based on current odometry
+ * and map unknowns.
+ */
 void PathPlanner::updateBranchCandidates() {
     latest_candidates_.clear();
     candidate_known_path_flags_.clear();
@@ -777,7 +850,7 @@ void PathPlanner::updateBranchCandidates() {
 
                 geometry_msgs::msg::Point hit;
                 const bool blocked = raycast(origin, far_target, hit, false);
-                const double open_depth = blocked ? distance3(origin, hit) : branch_probe_dist_m;
+                const double open_depth = blocked ? euclideanDistance(origin, hit) : branch_probe_dist_m;
 
                 ++sample_count;
                 depth_sum += open_depth;
@@ -908,6 +981,9 @@ void PathPlanner::updateBranchCandidates() {
     }
 }
 
+/**
+ * @brief Update global exploration graph using generated branch candidates.
+ */
 void PathPlanner::updateExploreGraphFromCandidates() {
     // Graph updates from local fan-candidates are only used in exploration-like
     // modes.
@@ -999,7 +1075,7 @@ void PathPlanner::updateExploreGraphFromCandidates() {
             if (!a || !b || !a->valid || !b->valid) {
                 continue;
             }
-            total_len += distance3(a->position, b->position);
+            total_len += euclideanDistance(a->position, b->position);
         }
         info.length_m = total_len;
         return info;
@@ -1103,7 +1179,7 @@ void PathPlanner::updateExploreGraphFromCandidates() {
             if (known_old && !node_recent) {
                 const auto route = getRouteInfo(anchor_id, node_id);
                 if (!route.exists &&
-                    (node->is_transit || distance3(node->position, origin) <= loop_overlap_radius)) {
+                    (node->is_transit || euclideanDistance(node->position, origin) <= loop_overlap_radius)) {
                     strong_loop_closed = true;
                     if (strong_loop_reason.empty()) {
                         strong_loop_reason = "new edge to old node without preexisting route";
@@ -1164,8 +1240,8 @@ void PathPlanner::updateExploreGraphFromCandidates() {
 
     // Apply placement hysteresis to avoid node flood while hovering.
     const double min_seed_spacing = std::max(0.2, frontier_node_spacing_m_);
-    if (has_frontier_seed_position_ && distance3(last_frontier_seed_position_, origin) < min_seed_spacing &&
-        !has_side_targets) {
+    if (has_frontier_seed_position_ &&
+        euclideanDistance(last_frontier_seed_position_, origin) < min_seed_spacing && !has_side_targets) {
         rememberAnchorNode(anchor_id);
         return;
     }
@@ -1260,7 +1336,7 @@ void PathPlanner::updateExploreGraphFromCandidates() {
                 if (!node || !node->valid) {
                     return;
                 }
-                const double dist = distance3(node->position, target);
+                const double dist = euclideanDistance(node->position, target);
                 if (dist <= hole_dedupe_radius && dist < best_dist) {
                     best_dist = dist;
                     best_node_id = node_id;
@@ -1343,7 +1419,7 @@ void PathPlanner::updateExploreGraphFromCandidates() {
                           node.status == GraphNodeStatus::UNVISITED)) {
                         continue;
                     }
-                    if (distance3(node.position, side_node->position) > reuse_radius) {
+                    if (euclideanDistance(node.position, side_node->position) > reuse_radius) {
                         continue;
                     }
                     node.valid = false;
@@ -1423,7 +1499,7 @@ void PathPlanner::updateExploreGraphFromCandidates() {
         if (!node.valid || node.is_transit || node.id == anchor_id || is_pending_or_queued_hole) {
             continue;
         }
-        if (distance3(node.position, origin) > cleanup_radius) {
+        if (euclideanDistance(node.position, origin) > cleanup_radius) {
             continue;
         }
         if (!(node.status == GraphNodeStatus::FRONTIER || node.status == GraphNodeStatus::UNVISITED)) {
@@ -1448,6 +1524,9 @@ void PathPlanner::updateExploreGraphFromCandidates() {
                          chosen.size(), graph_nodes_.size(), graph_edges_.size());
 }
 
+/**
+ * @brief Build a short‑term path/trajectory towards the current goal.
+ */
 void PathPlanner::updateLocalPlanAndTrajectory() {
     // Local planning is active only when planner outputs are allowed.
     if (!canPublishPlannerOutput()) {
@@ -1641,6 +1720,10 @@ void PathPlanner::updateLocalPlanAndTrajectory() {
                          published_plan_count_);
 }
 
+/**
+ * @brief Select the next spatial goal point based on current mode.
+ * @return Optional point if a valid target exists.
+ */
 std::optional<geometry_msgs::msg::Point> PathPlanner::selectGoalPoint() const {
     if ((mode_ == PlannerMode::BACKTRACK || mode_ == PlannerMode::RETURN_HOME) &&
         active_route_index_ < active_route_node_ids_.size()) {
@@ -1690,15 +1773,16 @@ std::optional<geometry_msgs::msg::Point> PathPlanner::selectGoalPoint() const {
             continue;
         }
 
-        const double d = distance3(origin, node.position);
-        if (d > max_query_dist) {
+        const double node_distance = euclideanDistance(origin, node.position);
+        if (node_distance > max_query_dist) {
             continue;
         }
-        if (!found || d < best_dist || (std::abs(d - best_dist) <= 1e-9 && node.id < best_id)) {
+        if (!found || node_distance < best_dist ||
+            (std::abs(node_distance - best_dist) <= 1e-9 && node.id < best_id)) {
             found = true;
             best = node.position;
             best_id = node.id;
-            best_dist = d;
+            best_dist = node_distance;
         }
     }
 
@@ -1708,6 +1792,9 @@ std::optional<geometry_msgs::msg::Point> PathPlanner::selectGoalPoint() const {
     return best;
 }
 
+/**
+ * @brief Check whether the graph contains any unvisited/frontier nodes.
+ */
 bool PathPlanner::hasUnvisitedFrontiers() const {
     for (const auto& node : graph_nodes_) {
         if (!node.valid || node.is_transit) {
@@ -1763,16 +1850,16 @@ std::optional<int> PathPlanner::nearestUnvisitedFrontierNodeId(int start_node_id
     pq.push({0.0, start_node_id});
 
     while (!pq.empty()) {
-        const auto [d, u] = pq.top();
+        const auto [current_cost, u] = pq.top();
         pq.pop();
-        if (d > dist[u] + 1e-9) {
+        if (current_cost > dist[u] + 1e-9) {
             continue;
         }
         for (const auto& [v, w] : adjacency[u]) {
-            const double alt = d + w;
-            if (alt + 1e-9 < dist[v]) {
-                dist[v] = alt;
-                pq.push({alt, v});
+            const double alt_cost = current_cost + w;
+            if (alt_cost + 1e-9 < dist[v]) {
+                dist[v] = alt_cost;
+                pq.push({alt_cost, v});
             }
         }
     }
@@ -1792,7 +1879,7 @@ std::optional<int> PathPlanner::nearestUnvisitedFrontierNodeId(int start_node_id
         if (it == dist.end() || !std::isfinite(it->second)) {
             continue;
         }
-        const double euclid = distance3(start->position, node.position);
+        const double euclid = euclideanDistance(start->position, node.position);
         if (!found || it->second < best_cost - 1e-9 ||
             (std::abs(it->second - best_cost) <= 1e-9 && euclid < best_euclid - 1e-9) ||
             (std::abs(it->second - best_cost) <= 1e-9 && std::abs(euclid - best_euclid) <= 1e-9 &&
@@ -1810,6 +1897,13 @@ std::optional<int> PathPlanner::nearestUnvisitedFrontierNodeId(int start_node_id
     return best_id;
 }
 
+/**
+ * @brief Dijkstra search for shortest path between two graph nodes.
+ * @param start_id Identifier of start node.
+ * @param goal_id Identifier of goal node.
+ * @param path_out Returns sequence of node ids along the path.
+ * @return true if a path was found.
+ */
 bool PathPlanner::computeShortestPathNodeIds(int start_id, int goal_id, std::vector<int>& path_out) const {
     path_out.clear();
     if (start_id <= 0 || goal_id <= 0) {
@@ -1863,20 +1957,21 @@ bool PathPlanner::computeShortestPathNodeIds(int start_id, int goal_id, std::vec
     pq.push({0.0, start_id});
 
     while (!pq.empty()) {
-        const auto [d, u] = pq.top();
+        const auto [current_cost, u] = pq.top();
         pq.pop();
-        if (d > dist[u] + 1e-9) {
+        if (current_cost > dist[u] + 1e-9) {
             continue;
         }
         if (u == goal_id) {
             break;
         }
         for (const auto& [v, w] : adjacency[u]) {
-            const double alt = d + w;
-            if (alt + 1e-9 < dist[v] || (std::abs(alt - dist[v]) <= 1e-9 && (prev[v] < 0 || u < prev[v]))) {
-                dist[v] = alt;
+            const double alt_cost = current_cost + w;
+            if (alt_cost + 1e-9 < dist[v] ||
+                (std::abs(alt_cost - dist[v]) <= 1e-9 && (prev[v] < 0 || u < prev[v]))) {
+                dist[v] = alt_cost;
                 prev[v] = u;
-                pq.push({alt, v});
+                pq.push({alt_cost, v});
             }
         }
     }
@@ -1900,6 +1995,10 @@ bool PathPlanner::computeShortestPathNodeIds(int start_id, int goal_id, std::vec
     return !path_out.empty();
 }
 
+/**
+ * @brief Begin following a precomputed graph route to a node.
+ * @param goal_node_id Target node identifier.
+ */
 bool PathPlanner::startRouteToNode(int goal_node_id) {
     if (goal_node_id <= 0 || current_anchor_node_id_ <= 0) {
         return false;
@@ -1954,6 +2053,9 @@ bool PathPlanner::ensureReturnHomeNode() {
     return false;
 }
 
+/**
+ * @brief Increment active route index when the vehicle reaches a leg.
+ */
 void PathPlanner::advanceRouteProgressIfReached() {
     if (!hasValidOdom() || active_route_node_ids_.empty()) {
         return;
@@ -1967,7 +2069,7 @@ void PathPlanner::advanceRouteProgressIfReached() {
             ++active_route_index_;
             continue;
         }
-        if (distance3(origin, target->position) <= reached_dist) {
+        if (euclideanDistance(origin, target->position) <= reached_dist) {
             ++active_route_index_;
             continue;
         }
@@ -1975,6 +2077,10 @@ void PathPlanner::advanceRouteProgressIfReached() {
     }
 }
 
+/**
+ * @brief Determine if planner should recompute local path to a changing
+ * goal.
+ */
 bool PathPlanner::shouldReplanForGoal(const geometry_msgs::msg::Point& goal) const {
     if (last_plan_publish_time_.nanoseconds() == 0) {
         return true;
@@ -1990,9 +2096,15 @@ bool PathPlanner::shouldReplanForGoal(const geometry_msgs::msg::Point& goal) con
     }
 
     const double goal_eps = std::max(0.05, trajectory_goal_replan_dist_m_);
-    return distance3(last_plan_goal_, goal) >= goal_eps;
+    return euclideanDistance(last_plan_goal_, goal) >= goal_eps;
 }
 
+/**
+ * @brief Compute piecewise straight‑line path to the specified goal.
+ *
+ * Attempts direct line‑of‑sight first and then a one‑hop bridge via a
+ * candidate direction if necessary.
+ */
 bool PathPlanner::computeLocalWaypointPath(const geometry_msgs::msg::Point& goal,
                                            std::vector<geometry_msgs::msg::Point>& path) const {
     path.clear();
@@ -2003,7 +2115,7 @@ bool PathPlanner::computeLocalWaypointPath(const geometry_msgs::msg::Point& goal
     const auto& origin = latest_odom_.pose.pose.position;
     path.push_back(origin);
 
-    if (distance3(origin, goal) <= 0.05) {
+    if (euclideanDistance(origin, goal) <= 0.05) {
         return false;
     }
 
@@ -2034,7 +2146,7 @@ bool PathPlanner::computeLocalWaypointPath(const geometry_msgs::msg::Point& goal
             continue;
         }
 
-        const double cost = distance3(origin, mid) + distance3(mid, goal) +
+        const double cost = euclideanDistance(origin, mid) + euclideanDistance(mid, goal) +
                             0.1 * std::abs(candidate.rel_yaw_deg) + 0.05 * std::abs(candidate.rel_pitch_deg);
         if (!bridge_found || cost < best_cost) {
             bridge_found = true;
@@ -2052,6 +2164,9 @@ bool PathPlanner::computeLocalWaypointPath(const geometry_msgs::msg::Point& goal
     return true;
 }
 
+/**
+ * @brief Publish the currently computed waypoint path to ROS.
+ */
 void PathPlanner::publishCurrentPlan(const std::vector<geometry_msgs::msg::Point>& path) {
     if (!pub_current_plan_ || path.empty()) {
         return;
@@ -2076,6 +2191,9 @@ void PathPlanner::publishCurrentPlan(const std::vector<geometry_msgs::msg::Point
     has_last_plan_goal_ = true;
 }
 
+/**
+ * @brief Convert a waypoint path into polynomial segments and publish.
+ */
 bool PathPlanner::publishTrajectoryFromPath(const std::vector<geometry_msgs::msg::Point>& path) {
     if (!pub_trajectory_ || path.size() < 2) {
         return false;
@@ -2090,31 +2208,31 @@ bool PathPlanner::publishTrajectoryFromPath(const std::vector<geometry_msgs::msg
     const double min_dt = std::max(0.1, trajectory_min_segment_time_sec_);
 
     for (std::size_t i = 0; i + 1 < path.size(); ++i) {
-        const auto& a = path[i];
-        const auto& b = path[i + 1];
-        const double d = distance3(a, b);
-        if (d <= 0.05) {
+        const auto& start_point = path[i];
+        const auto& end_point = path[i + 1];
+        const double segment_dist = euclideanDistance(start_point, end_point);
+        if (segment_dist <= 0.05) {
             continue;
         }
 
-        const double dt = std::max(min_dt, d / nominal_speed);
+        const double segment_duration_s = std::max(min_dt, segment_dist / nominal_speed);
         mav_planning_msgs::msg::PolynomialSegment4D seg;
         seg.header.frame_id = planning_frame_;
         seg.header.stamp = now;
         seg.num_coeffs = 2;
 
-        seg.segment_time.sec = static_cast<int32_t>(dt);
+        seg.segment_time.sec = static_cast<int32_t>(segment_duration_s);
         seg.segment_time.nanosec =
-            static_cast<uint32_t>((dt - static_cast<double>(seg.segment_time.sec)) * 1e9);
+            static_cast<uint32_t>((segment_duration_s - static_cast<double>(seg.segment_time.sec)) * 1e9);
 
-        const double vx = (b.x - a.x) / dt;
-        const double vy = (b.y - a.y) / dt;
-        const double vz = (b.z - a.z) / dt;
-        seg.x = {a.x, vx};
-        seg.y = {a.y, vy};
-        seg.z = {a.z, vz};
+        const double vx = (end_point.x - start_point.x) / segment_duration_s;
+        const double vy = (end_point.y - start_point.y) / segment_duration_s;
+        const double vz = (end_point.z - start_point.z) / segment_duration_s;
+        seg.x = {start_point.x, vx};
+        seg.y = {start_point.y, vy};
+        seg.z = {start_point.z, vz};
 
-        const double yaw = std::atan2(b.y - a.y, b.x - a.x);
+        const double yaw = std::atan2(end_point.y - start_point.y, end_point.x - start_point.x);
         seg.yaw = {yaw, 0.0};
         traj.segments.push_back(seg);
     }
@@ -2128,6 +2246,9 @@ bool PathPlanner::publishTrajectoryFromPath(const std::vector<geometry_msgs::msg
     return true;
 }
 
+/**
+ * @brief Publish visualization markers representing raycast candidates.
+ */
 void PathPlanner::publishCandidateMarkers() {
     if (!pub_candidate_markers_) {
         return;
@@ -2385,16 +2506,17 @@ bool PathPlanner::isOccupied(const geometry_msgs::msg::Point& point) const {
     }
 
     const double step = std::max(static_cast<double>(octree_->getResolution()), 0.1);
-    for (double dx = -inflation; dx <= inflation + 1e-6; dx += step) {
-        for (double dy = -inflation; dy <= inflation + 1e-6; dy += step) {
-            for (double dz = -inflation; dz <= inflation + 1e-6; dz += step) {
-                if ((dx * dx + dy * dy + dz * dz) > (inflation * inflation)) {
+    for (double offset_x = -inflation; offset_x <= inflation + 1e-6; offset_x += step) {
+        for (double offset_y = -inflation; offset_y <= inflation + 1e-6; offset_y += step) {
+            for (double offset_z = -inflation; offset_z <= inflation + 1e-6; offset_z += step) {
+                if ((offset_x * offset_x + offset_y * offset_y + offset_z * offset_z) >
+                    (inflation * inflation)) {
                     continue;
                 }
                 geometry_msgs::msg::Point q;
-                q.x = point.x + dx;
-                q.y = point.y + dy;
-                q.z = point.z + dz;
+                q.x = point.x + offset_x;
+                q.y = point.y + offset_y;
+                q.z = point.z + offset_z;
                 if (rawOccupied(q)) {
                     return true;
                 }
@@ -2435,20 +2557,20 @@ bool PathPlanner::raycast(const geometry_msgs::msg::Point& origin, const geometr
         return false;
     }
 
-    const double dx = target.x - origin.x;
-    const double dy = target.y - origin.y;
-    const double dz = target.z - origin.z;
-    const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-    if (dist <= 1e-6) {
+    const double delta_x = target.x - origin.x;
+    const double delta_y = target.y - origin.y;
+    const double delta_z = target.z - origin.z;
+    const double distance = std::sqrt(delta_x * delta_x + delta_y * delta_y + delta_z * delta_z);
+    if (distance <= 1e-6) {
         return false;
     }
 
     const double step = std::max(static_cast<double>(octree_->getResolution()), 0.1);
-    const double ux = dx / dist;
-    const double uy = dy / dist;
-    const double uz = dz / dist;
+    const double ux = delta_x / distance;
+    const double uy = delta_y / distance;
+    const double uz = delta_z / distance;
 
-    for (double s = step; s <= dist + 1e-6; s += step) {
+    for (double s = step; s <= distance + 1e-6; s += step) {
         geometry_msgs::msg::Point p;
         p.x = origin.x + ux * s;
         p.y = origin.y + uy * s;
@@ -2490,16 +2612,17 @@ double PathPlanner::clearance(const geometry_msgs::msg::Point& point) const {
          {{1, 1, 1}},   {{1, 1, -1}},  {{1, -1, 1}}, {{1, -1, -1}}, {{-1, 1, 1}}, {{-1, 1, -1}},
          {{-1, -1, 1}}, {{-1, -1, -1}}}};
 
-    for (double r = step; r <= max_range + 1e-6; r += step) {
+    for (double radius_m = step; radius_m <= max_range + 1e-6; radius_m += step) {
         for (const auto& d : kDirs) {
             const double n = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
             geometry_msgs::msg::Point q;
-            q.x = point.x + (d[0] / n) * r;
-            q.y = point.y + (d[1] / n) * r;
-            q.z = point.z + (d[2] / n) * r;
+            q.x = point.x + (d[0] / n) * radius_m;
+            q.y = point.y + (d[1] / n) * radius_m;
+            q.z = point.z + (d[2] / n) * radius_m;
 
             if (rawOccupied(q)) {
-                return std::max(0.0, r - inflation);
+                // collision found at this radius, account for inflation margin
+                return std::max(0.0, radius_m - inflation);
             }
         }
     }
@@ -2523,14 +2646,15 @@ std::optional<int> PathPlanner::findNearestNodeId(const geometry_msgs::msg::Poin
             continue;
         }
 
-        const double d = distance3(node.position, point);
-        if (d > radius) {
+        const double dist_to_query = euclideanDistance(node.position, point);
+        if (dist_to_query > radius) {
             continue;
         }
 
-        if (!found || d < best_dist || (std::abs(d - best_dist) <= 1e-9 && node.id < best_id)) {
+        if (!found || dist_to_query < best_dist ||
+            (std::abs(dist_to_query - best_dist) <= 1e-9 && node.id < best_id)) {
             found = true;
-            best_dist = d;
+            best_dist = dist_to_query;
             best_id = node.id;
         }
     }
@@ -2549,7 +2673,7 @@ std::vector<int> PathPlanner::findNearbyNodeIds(const geometry_msgs::msg::Point&
         if (!node.valid) {
             continue;
         }
-        if (distance3(node.position, point) <= radius) {
+        if (euclideanDistance(node.position, point) <= radius) {
             ids.push_back(node.id);
         }
     }
@@ -2611,7 +2735,7 @@ void PathPlanner::upsertGraphEdge(int from_id, int to_id) {
         std::swap(a, b);
     }
 
-    const double length = distance3(from->position, to->position);
+    const double length = euclideanDistance(from->position, to->position);
     const double cost = length;
 
     for (auto& edge : graph_edges_) {
