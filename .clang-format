@@ -1,0 +1,36 @@
+Language: Cpp
+BasedOnStyle: Google
+
+# Allow longer lines for explicit variable names + unit postfixes
+ColumnLimit: 110
+
+# Modern C++ standards
+Standard: Latest
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# Clean up Doxygen and comments
+ReflowComments: true
+CommentPragmas: '^ IWYU pragma:'
+
+# Alignment settings for readability
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignTrailingComments: true
+
+# Keep templates readable
+AlwaysBreakTemplateDeclarations: Yes
+
+# Branding/Namespace handling
+FixNamespaceComments: true
+
+# Pointer/Reference alignment (Left is modern standard)
+DerivePointerAlignment: false
+PointerAlignment: Left
+
+# Braces
+BreakBeforeBraces: Attach

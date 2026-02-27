@@ -1,48 +1,56 @@
 #include "statemachine_pkg/statemachine.h"
-#include "statemachine_pkg/msg/answer.hpp"
-#include "statemachine_pkg/msg/command.hpp"
-
-#include <algorithm>
-#include <chrono>
-#include <cstdlib>
-#include <fstream>
-#include <iomanip>
-#include <limits>
-#include <sstream>
-#include <ctime>
 
 #include <octomap/OcTree.h>
 #include <octomap/octomap.h>
 #include <octomap_msgs/conversions.h>
 
+#include <algorithm>
+#include <chrono>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
+#include <limits>
+#include <sstream>
+
+#include "statemachine_pkg/msg/answer.hpp"
+#include "statemachine_pkg/msg/command.hpp"
+
 namespace {
 
-double distance3(const geometry_msgs::msg::Point &a, const geometry_msgs::msg::Point &b)
-{
-    const double dx = a.x - b.x;
-    const double dy = a.y - b.y;
-    const double dz = a.z - b.z;
-    return std::sqrt(dx * dx + dy * dy + dz * dz);
+/**
+ * @brief Computes the 3D Euclidean distance between two points.
+ * @param point_a First coordinate.
+ * @param point_b Second coordinate.
+ * @return double L2 norm of the difference vector.
+ */
+double calculateEuclideanDistance3D(const geometry_msgs::msg::Point& point_a,
+                                    const geometry_msgs::msg::Point& point_b) {
+    const double delta_x_m = point_a.x - point_b.x;
+    const double delta_y_m = point_a.y - point_b.y;
+    const double delta_z_m = point_a.z - point_b.z;
+    return std::sqrt(delta_x_m * delta_x_m + delta_y_m * delta_y_m + delta_z_m * delta_z_m);
 }
 
-constexpr double kTakeoffHeightM = 5.0; // Fixed takeoff height above start position
-constexpr double kMinStartPosNormM = 1e-3; // Reject near-zero start pose (0,0,0) as invalid
-constexpr double kMinLandingDescentM = 0.05; // Guard against non-descending landing targets
-constexpr std::size_t kRequiredLanternCount = 5; // Mission target: unique lantern tracks
+constexpr double kTakeoffHeightM = 5.0;       ///< Fixed takeoff height above start position in meters.
+constexpr double kMinStartPosNormM = 1e-3;    ///< Reject near-zero start pose (0,0,0) as invalid (meters).
+constexpr double kMinLandingDescentM = 0.05;  ///< Guard against non-descending landing targets (meters).
+constexpr std::size_t kRequiredLanternCount =
+    5;  ///< Mission target: unique lantern tracks required for completion.
 
-} // namespace
+}  // namespace
 
 // #################################################################################################
 // Constructor / Destructor
 // #################################################################################################
 
-StateMachine::StateMachine() : Node("state_machine_node")
-{
+StateMachine::StateMachine() : Node("state_machine_node") {
     RCLCPP_INFO(this->get_logger(), "[][StateMachine]: State Machine Node has been started.");
-    
-    // Create and Load Parameters #####################################################################
-    // Lists
-    this->checkpoint_list_ = declare_parameter<std::vector<double>>("checkpoints.positions", std::vector<double>{});
+
+    // Create and Load Parameters
+    // ##################################################################### Lists
+    this->checkpoint_list_ =
+        declare_parameter<std::vector<double>>("checkpoints.positions", std::vector<double>{});
     this->node_list_ = declare_parameter<std::vector<std::string>>("nodes", std::vector<std::string>{});
     // Timer periods
     this->pub_state_loop_sec_ = declare_parameter<double>("time.pub_state_loop_sec", 1.0);
@@ -65,62 +73,82 @@ StateMachine::StateMachine() : Node("state_machine_node")
     this->node_planner_index_ = declare_parameter<int>("node_roles.planner_index", -1);
     // Logging paths
     this->lantern_log_path_ = declare_parameter<std::string>("logging.lantern_log_path", "lanterns_log.csv");
-    this->event_log_path_ = declare_parameter<std::string>("logging.event_log_path", "statemachine_events.log");
+    this->event_log_path_ =
+        declare_parameter<std::string>("logging.event_log_path", "statemachine_events.log");
     this->octomap_log_path_ = declare_parameter<std::string>("logging.octomap_log_path", "final_map.bt");
 
-    // TOPIC PARAMETERS ###############################################################################
+    // TOPIC PARAMETERS
+    // ###############################################################################
     this->topic_state_ = declare_parameter<std::string>("topics.topic_state", "statemachine/state");
     this->topic_cmd_ = declare_parameter<std::string>("topics.topic_cmd_", "statemachine/cmd");
-    this->topic_heartbeat_ = declare_parameter<std::string>("topics.topic_heartbeat", "statemachine/heartbeat");
-    this->topic_lantern_detections_ = declare_parameter<std::string>("topics.topic_lantern_detections", "detected_lanterns");
-    this->topic_lantern_counts_ = declare_parameter<std::string>("topics.topic_lantern_counts", "detected_lanterns/counts");
-    this->topic_current_state_est_ = declare_parameter<std::string>("topics.current_state_est", "current_state_est");
+    this->topic_heartbeat_ =
+        declare_parameter<std::string>("topics.topic_heartbeat", "statemachine/heartbeat");
+    this->topic_lantern_detections_ =
+        declare_parameter<std::string>("topics.topic_lantern_detections", "detected_lanterns");
+    this->topic_lantern_counts_ =
+        declare_parameter<std::string>("topics.topic_lantern_counts", "detected_lanterns/counts");
+    this->topic_current_state_est_ =
+        declare_parameter<std::string>("topics.current_state_est", "current_state_est");
     this->topic_octomap_ = declare_parameter<std::string>("topics.topic_octomap", "octomap_binary");
-    this->topic_viz_checkpoint = declare_parameter<std::string>("topics.topic_viz_checkpoint", "statemachine/viz/checkpoint");
-    this->topic_viz_path_flight = declare_parameter<std::string>("topics.topic_viz_path_flight", "statemachine/viz/path_flight");
+    this->topic_viz_checkpoint =
+        declare_parameter<std::string>("topics.topic_viz_checkpoint", "statemachine/viz/checkpoint");
+    this->topic_viz_path_flight =
+        declare_parameter<std::string>("topics.topic_viz_path_flight", "statemachine/viz/path_flight");
 
-    // Create Publishers ##############################################################################
+    // Create Publishers
+    // ##############################################################################
     this->pub_state_ = this->create_publisher<std_msgs::msg::String>(topic_state_, 10);
     this->pub_cmd_ = this->create_publisher<statemachine_pkg::msg::Command>(topic_cmd_, 10);
-    this->pub_viz_checkpoint_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(topic_viz_checkpoint, 10);
-    this->pub_viz_path_flight_ = this->create_publisher<visualization_msgs::msg::Marker>(topic_viz_path_flight, 10);
+    this->pub_viz_checkpoint_ =
+        this->create_publisher<visualization_msgs::msg::MarkerArray>(topic_viz_checkpoint, 10);
+    this->pub_viz_path_flight_ =
+        this->create_publisher<visualization_msgs::msg::Marker>(topic_viz_path_flight, 10);
 
-    // Create Subscribers #############################################################################
-    this->sub_heartbeat_ = this->create_subscription<statemachine_pkg::msg::Answer>(topic_heartbeat_, 10, std::bind(&StateMachine::handleAnswer, this, std::placeholders::_1));
-    this->sub_lantern_detections_ = this->create_subscription<geometry_msgs::msg::PoseArray>(topic_lantern_detections_, 10, std::bind(&StateMachine::onLanternDetections, this, std::placeholders::_1));
-    this->sub_lantern_counts_ = this->create_subscription<std_msgs::msg::Int32MultiArray>(topic_lantern_counts_, 10, std::bind(&StateMachine::onLanternCounts, this, std::placeholders::_1));
-    this->sub_current_state_est_ = this->create_subscription<nav_msgs::msg::Odometry>(topic_current_state_est_, 10, std::bind(&StateMachine::onCurrentStateEst, this, std::placeholders::_1));
-    this->sub_octomap_ = this->create_subscription<octomap_msgs::msg::Octomap>(topic_octomap_, 1, std::bind(&StateMachine::onOctomap, this, std::placeholders::_1));
+    // Create Subscribers
+    // #############################################################################
+    this->sub_heartbeat_ = this->create_subscription<statemachine_pkg::msg::Answer>(
+        topic_heartbeat_, 10, std::bind(&StateMachine::handleAnswer, this, std::placeholders::_1));
+    this->sub_lantern_detections_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
+        topic_lantern_detections_, 10,
+        std::bind(&StateMachine::onLanternDetections, this, std::placeholders::_1));
+    this->sub_lantern_counts_ = this->create_subscription<std_msgs::msg::Int32MultiArray>(
+        topic_lantern_counts_, 10, std::bind(&StateMachine::onLanternCounts, this, std::placeholders::_1));
+    this->sub_current_state_est_ = this->create_subscription<nav_msgs::msg::Odometry>(
+        topic_current_state_est_, 10,
+        std::bind(&StateMachine::onCurrentStateEst, this, std::placeholders::_1));
+    this->sub_octomap_ = this->create_subscription<octomap_msgs::msg::Octomap>(
+        topic_octomap_, 1, std::bind(&StateMachine::onOctomap, this, std::placeholders::_1));
 
-    // Create Timers ##################################################################################
-    const double loop_sec = std::max(0.01, pub_state_loop_sec_);
-    timer_ = this->create_wall_timer(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(loop_sec)),
-        std::bind(&StateMachine::onTimer, this));
+    // Create Timers
+    // ##################################################################################
+    const double loop_duration_sec = std::max(0.01, pub_state_loop_sec_);
+    periodic_task_timer_ = this->create_wall_timer(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                       std::chrono::duration<double>(loop_duration_sec)),
+                                                   std::bind(&StateMachine::onTimer, this));
 
-    // Initialize node heartbeat list from config ####################################################
-    nodes_.clear();
-    nodes_.reserve(node_list_.size());
-    for (const auto &name : node_list_) {
-        if (!name.empty()) {
-            nodes_.push_back(NodeInfo{name});
+    // Initialize node heartbeat list from config
+    // ####################################################
+    monitored_nodes_.clear();
+    monitored_nodes_.reserve(node_list_.size());
+    for (const auto& node_name_from_list : node_list_) {
+        if (!node_name_from_list.empty()) {
+            monitored_nodes_.push_back(NodeInfo{node_name_from_list});
         }
     }
 
-    // Initialize checkpoint list from config ########################################################
-    checkpoint_positions_.clear();
+    // Initialize checkpoint list from config
+    // ########################################################
+    active_checkpoint_positions_m_.clear();
     for (size_t i = 0; i + 2 < checkpoint_list_.size(); i += 3) {
-        checkpoint_positions_.emplace_back(
-            checkpoint_list_[i],
-            checkpoint_list_[i + 1],
-            checkpoint_list_[i + 2]);
+        active_checkpoint_positions_m_.emplace_back(checkpoint_list_[i], checkpoint_list_[i + 1],
+                                                    checkpoint_list_[i + 2]);
     }
-    checkpoint_positions_base_ = checkpoint_positions_; // Store static list before runtime insertion
-    state_enter_time_ = this->now(); // Start WAITING timeout from node startup time
+    base_checkpoint_positions_m_ =
+        active_checkpoint_positions_m_;    // Store static list before runtime insertion
+    state_entry_timestamp_ = this->now();  // Start WAITING timeout from node startup time
 }
 
-StateMachine::~StateMachine()
-{
+StateMachine::~StateMachine() {
     RCLCPP_INFO(this->get_logger(), "State Machine Node is shutting down.");
     this->logEvent("[SHUTDOWN]: State Machine Node is shutting down.");
 }
@@ -132,160 +160,156 @@ StateMachine::~StateMachine()
 /**
  * @brief Publish the current state as a string message on the state topic.
  */
-void StateMachine::publishState()
-{
-    std_msgs::msg::String msg; // Message container for the current state
-    msg.data = toString(state_); // Convert enum to string for logging/monitoring
-    pub_state_->publish(msg); // Publish the message
+void StateMachine::publishState() {
+    std_msgs::msg::String state_msg;                    // Message container for the current state
+    state_msg.data = toString(current_mission_state_);  // Convert enum to string for logging/monitoring
+    pub_state_->publish(state_msg);                     // Publish the message
 }
-
-
 
 /**
  * @brief Switch to a new mission state, store entry time, and publish update.
- * @param new_state Target mission state.
- * @param reason Human-readable reason for logging.
+ * @param target_mission_state Target mission state.
+ * @param state_change_reason Human-readable reason for logging.
  */
-void StateMachine::changeState(MissionStates new_state, const std::string &reason)
-{
+void StateMachine::changeState(MissionStates target_mission_state, const std::string& state_change_reason) {
     // Step 1: Ignore if state doesn't change
-    if (state_ == new_state) {
+    if (current_mission_state_ == target_mission_state) {
         return;
     }
 
     // Step 2: Update state and entry time
-    state_ = new_state;
-    state_enter_time_ = this->now();
+    current_mission_state_ = target_mission_state;
+    state_entry_timestamp_ = this->now();
 
     // Step 3: Reset boot-timeout log flag when leaving/entering WAITING
-    if (state_ != MissionStates::WAITING) {
-        boot_timeout_reported_ = false;
+    if (current_mission_state_ != MissionStates::WAITING) {
+        has_boot_timeout_been_reported_ = false;
     }
-    if (state_ != MissionStates::TAKEOFF) {
-        last_takeoff_cmd_time_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    if (current_mission_state_ != MissionStates::TAKEOFF) {
+        last_takeoff_command_timestamp_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     }
 
     // Step 4: Log and publish new state
-    logEvent("[State] " + toString(state_) + " (" + reason + ")");
+    logEvent("[State] " + toString(current_mission_state_) + " (" + state_change_reason + ")");
     publishState();
 
     // Step 5: Dispatch commands for the new state
-    const std::string node_controller = nodeNameByIndex(node_controller_index_);
-    const std::string node_waypoint = nodeNameByIndex(node_waypoint_index_);
-    const std::string node_planner = nodeNameByIndex(node_planner_index_);
+    const std::string node_controller_name = nodeNameByIndex(node_controller_index_);
+    const std::string node_waypoint_name = nodeNameByIndex(node_waypoint_index_);
+    const std::string node_planner_name = nodeNameByIndex(node_planner_index_);
 
-    switch (state_) {
+    switch (current_mission_state_) {
         case MissionStates::WAITING:
-            if (!node_controller.empty()) sendCommand(node_controller, Commands::HOLD);
+            if (!node_controller_name.empty()) sendCommand(node_controller_name, Commands::HOLD);
             break;
         case MissionStates::TAKEOFF:
-            if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
-            if (!node_waypoint.empty() && !checkpoint_positions_.empty()) {
-                geometry_msgs::msg::Point target;
-                target.x = checkpoint_positions_.front().x();
-                target.y = checkpoint_positions_.front().y();
-                target.z = checkpoint_positions_.front().z();
-                sendCommandWithTarget(node_waypoint, Commands::TAKEOFF, target);
-                last_takeoff_cmd_time_ = this->now();
-            } else if (!node_waypoint.empty()) {
+            if (!node_controller_name.empty()) sendCommand(node_controller_name, Commands::START);
+            if (!node_waypoint_name.empty() && !active_checkpoint_positions_m_.empty()) {
+                geometry_msgs::msg::Point target_pos;
+                target_pos.x = active_checkpoint_positions_m_.front().x();
+                target_pos.y = active_checkpoint_positions_m_.front().y();
+                target_pos.z = active_checkpoint_positions_m_.front().z();
+                sendCommandWithTarget(node_waypoint_name, Commands::TAKEOFF, target_pos);
+                last_takeoff_command_timestamp_ = this->now();
+            } else if (!node_waypoint_name.empty()) {
                 logEvent("[TAKEOFF] no checkpoint available for takeoff target");
             }
             break;
         case MissionStates::TRAVELLING:
-            if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
-            if (!node_waypoint.empty()) sendCommand(node_waypoint, Commands::START);
+            if (!node_controller_name.empty()) sendCommand(node_controller_name, Commands::START);
+            if (!node_waypoint_name.empty()) sendCommand(node_waypoint_name, Commands::START);
             break;
         case MissionStates::EXPLORING:
-            planner_exploration_done_ = false;
-            planner_return_home_done_ = false;
-            if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
-            if (!node_planner.empty()) sendCommand(node_planner, Commands::START);
+            is_planner_exploration_completed_ = false;
+            is_planner_return_home_completed_ = false;
+            if (!node_controller_name.empty()) sendCommand(node_controller_name, Commands::START);
+            if (!node_planner_name.empty()) sendCommand(node_planner_name, Commands::START);
             break;
         case MissionStates::RETURN_HOME:
-            planner_return_home_done_ = false;
-            if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
-            if (!node_planner.empty()) {
-                if (start_checkpoint_inserted_ && !checkpoint_positions_.empty()) {
-                    geometry_msgs::msg::Point target;
-                    target.x = checkpoint_positions_.front().x();
-                    target.y = checkpoint_positions_.front().y();
-                    target.z = checkpoint_positions_.front().z();
-                    sendCommandWithTarget(node_planner, Commands::RETURN_HOME, target);
+            is_planner_return_home_completed_ = false;
+            if (!node_controller_name.empty()) sendCommand(node_controller_name, Commands::START);
+            if (!node_planner_name.empty()) {
+                if (has_takeoff_checkpoint_been_inserted_ && !active_checkpoint_positions_m_.empty()) {
+                    geometry_msgs::msg::Point target_pos;
+                    target_pos.x = active_checkpoint_positions_m_.front().x();
+                    target_pos.y = active_checkpoint_positions_m_.front().y();
+                    target_pos.z = active_checkpoint_positions_m_.front().z();
+                    sendCommandWithTarget(node_planner_name, Commands::RETURN_HOME, target_pos);
                 } else {
-                    sendCommand(node_planner, Commands::RETURN_HOME);
+                    sendCommand(node_planner_name, Commands::RETURN_HOME);
                 }
             }
             break;
         case MissionStates::LAND:
-            landing_checkpoint_index_ = -1; // Force fresh landing target creation on LAND entry
-            if (!node_controller.empty()) sendCommand(node_controller, Commands::START);
-            if (!node_planner.empty()) sendCommand(node_planner, Commands::HOLD);
-            if (!node_waypoint.empty()) {
-                geometry_msgs::msg::Point target;
-                if (prepareLandingCheckpoint(target)) {
-                    sendCommandWithTarget(node_waypoint, Commands::LAND, target);
+            active_landing_checkpoint_index_ = -1;  // Force fresh landing target creation on LAND entry
+            if (!node_controller_name.empty()) sendCommand(node_controller_name, Commands::START);
+            if (!node_planner_name.empty()) sendCommand(node_planner_name, Commands::HOLD);
+            if (!node_waypoint_name.empty()) {
+                geometry_msgs::msg::Point target_pos;
+                if (prepareLandingCheckpoint(target_pos)) {
+                    sendCommandWithTarget(node_waypoint_name, Commands::LAND, target_pos);
                 } else {
                     logEvent("[LAND] ground estimation failed, landing command not sent");
-                    RCLCPP_WARN(this->get_logger(), "[LAND] ground estimation failed, landing command not sent");
+                    RCLCPP_WARN(this->get_logger(),
+                                "[LAND] ground estimation failed, landing command not sent");
                 }
             }
             break;
         case MissionStates::DONE:
-            if (octree_) {
-                octree_->writeBinary(octomap_log_path_);
+            if (latest_octomap_octree_) {
+                latest_octomap_octree_->writeBinary(octomap_log_path_);
                 logEvent("[Map] Saved octomap to " + octomap_log_path_);
                 RCLCPP_INFO(this->get_logger(), "Saved octomap to %s", octomap_log_path_.c_str());
             }
             [[fallthrough]];
         case MissionStates::ERROR:
         case MissionStates::ABORTED:
-            if (!node_controller.empty()) sendCommand(node_controller, Commands::HOLD);
-            if (!node_waypoint.empty()) sendCommand(node_waypoint, Commands::HOLD);
-            if (!node_planner.empty()) sendCommand(node_planner, Commands::HOLD);
+            if (!node_controller_name.empty()) sendCommand(node_controller_name, Commands::HOLD);
+            if (!node_waypoint_name.empty()) sendCommand(node_waypoint_name, Commands::HOLD);
+            if (!node_planner_name.empty()) sendCommand(node_planner_name, Commands::HOLD);
             break;
     }
 }
 
 /**
  * @brief Send a command to a specific node via the shared command topic.
- * @param recv_node Target node name.
- * @param cmd Command enum to send.
+ * @param receiver_node_name Target node name.
+ * @param command_enum Command enum to send.
  */
-void StateMachine::sendCommand(std::string recv_node, Commands cmd)
-{
-    statemachine_pkg::msg::Command msg; // Command container for one target node
-    msg.target = recv_node;             // Target node name
-    msg.command = static_cast<uint8_t>(cmd); // Encode enum to message field
-    msg.has_target = false;             // No target by default
-    const auto now = this->now();       // Timestamp for tracing/debugging
-    msg.stamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
-    msg.stamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
+void StateMachine::sendCommand(std::string receiver_node_name, Commands command_enum) {
+    statemachine_pkg::msg::Command cmd_msg;                // Command container for one target node
+    cmd_msg.target = receiver_node_name;                   // Target node name
+    cmd_msg.command = static_cast<uint8_t>(command_enum);  // Encode enum to message field
+    cmd_msg.has_target = false;                            // No target by default
+    const auto current_node_time = this->now();            // Timestamp for tracing/debugging
+    cmd_msg.stamp.sec = static_cast<int32_t>(current_node_time.nanoseconds() / 1000000000LL);
+    cmd_msg.stamp.nanosec = static_cast<uint32_t>(current_node_time.nanoseconds() % 1000000000LL);
 
-    pub_cmd_->publish(msg); // Publish on shared command topic
-    this->last_cmd_= cmd; // Store last command for potential state-based logic 
-    logCommand(recv_node, cmd); // Persist command in event log
+    pub_cmd_->publish(cmd_msg);                    // Publish on shared command topic
+    this->last_sent_command_ = command_enum;       // Store last command for potential state-based logic
+    logCommand(receiver_node_name, command_enum);  // Persist command in event log
 }
 
 /**
  * @brief Send a command to a specific node with a target position.
- * @param recv_node Target node name.
- * @param cmd Command enum to send.
- * @param target Target position for the command.
+ * @param receiver_node_name Target node name.
+ * @param command_enum Command enum to send.
+ * @param target_position_m Target position for the command in meters.
  */
-void StateMachine::sendCommandWithTarget(const std::string &recv_node, Commands cmd, const geometry_msgs::msg::Point &target)
-{
-    statemachine_pkg::msg::Command msg; // Command container for one target node
-    msg.target = recv_node;             // Target node name
-    msg.command = static_cast<uint8_t>(cmd); // Encode enum to message field
-    msg.has_target = true;              // Explicit target payload
-    msg.target_pos = target;            // Target position
-    const auto now = this->now();       // Timestamp for tracing/debugging
-    msg.stamp.sec = static_cast<int32_t>(now.nanoseconds() / 1000000000LL);
-    msg.stamp.nanosec = static_cast<uint32_t>(now.nanoseconds() % 1000000000LL);
+void StateMachine::sendCommandWithTarget(const std::string& receiver_node_name, Commands command_enum,
+                                         const geometry_msgs::msg::Point& target_position_m) {
+    statemachine_pkg::msg::Command cmd_msg;                // Command container for one target node
+    cmd_msg.target = receiver_node_name;                   // Target node name
+    cmd_msg.command = static_cast<uint8_t>(command_enum);  // Encode enum to message field
+    cmd_msg.has_target = true;                             // Explicit target payload
+    cmd_msg.target_pos = target_position_m;                // Target position
+    const auto current_node_time = this->now();            // Timestamp for tracing/debugging
+    cmd_msg.stamp.sec = static_cast<int32_t>(current_node_time.nanoseconds() / 1000000000LL);
+    cmd_msg.stamp.nanosec = static_cast<uint32_t>(current_node_time.nanoseconds() % 1000000000LL);
 
-    pub_cmd_->publish(msg); // Publish on shared command topic
-    this->last_cmd_= cmd; // Store last command for potential state-based logic 
-    logCommand(recv_node, cmd); // Persist command in event log
+    pub_cmd_->publish(cmd_msg);                    // Publish on shared command topic
+    this->last_sent_command_ = command_enum;       // Store last command for potential state-based logic
+    logCommand(receiver_node_name, command_enum);  // Persist command in event log
 }
 
 // #################################################################################################
@@ -293,114 +317,121 @@ void StateMachine::sendCommandWithTarget(const std::string &recv_node, Commands 
 // #################################################################################################
 
 /**
- * @brief Handle heartbeat/answer messages from other nodes.
- * @param msg Incoming Answer message (node name + status + timestamp).
+ * @brief Processes heartbeat responses from external nodes to maintain health status.
+ * @param shared_answer_msg Pointer to the incoming protocol message.
  */
-void StateMachine::handleAnswer(const statemachine_pkg::msg::Answer::SharedPtr msg)
-{
+void StateMachine::handleAnswer(const statemachine_pkg::msg::Answer::SharedPtr shared_answer_msg) {
     // Step 1: Validate message
-    if (!msg) {
+    if (!shared_answer_msg) {
         return;
     }
-    if (msg->node_name.empty()) {
+    if (shared_answer_msg->node_name.empty()) {
         logEvent("[Answer] missing node_name");
         return;
     }
 
-    const std::string planner_name = nodeNameByIndex(node_planner_index_);
-    const bool is_planner_msg = !planner_name.empty() && msg->node_name == planner_name;
+    const std::string planner_node_name = nodeNameByIndex(node_planner_index_);
+    const bool is_planner_node_msg =
+        !planner_node_name.empty() && shared_answer_msg->node_name == planner_node_name;
 
     // Step 2: Convert status code to enum (RUNNING-only; DONE accepted from planner only)
-    AnswerStates status = AnswerStates::UNKNOWN;
-    if (msg->state == static_cast<uint8_t>(AnswerStates::RUNNING)) {
-        status = AnswerStates::RUNNING;
-    } else if (msg->state == static_cast<uint8_t>(AnswerStates::DONE)) {
-        if (is_planner_msg) {
-            status = AnswerStates::DONE;
+    AnswerStates reported_status = AnswerStates::UNKNOWN;
+    if (shared_answer_msg->state == static_cast<uint8_t>(AnswerStates::RUNNING)) {
+        reported_status = AnswerStates::RUNNING;
+    } else if (shared_answer_msg->state == static_cast<uint8_t>(AnswerStates::DONE)) {
+        if (is_planner_node_msg) {
+            reported_status = AnswerStates::DONE;
         }
     }
-    auto statusToString = [](AnswerStates s) -> std::string {
-        switch (s) {
-            case AnswerStates::RUNNING: return "RUNNING";
-            case AnswerStates::DONE: return "DONE";
-            case AnswerStates::UNKNOWN: return "UNKNOWN";
+
+    auto convertStatusToString = [](AnswerStates status_enum) -> std::string {
+        switch (status_enum) {
+            case AnswerStates::RUNNING:
+                return "RUNNING";
+            case AnswerStates::DONE:
+                return "DONE";
+            case AnswerStates::UNKNOWN:
+                return "UNKNOWN";
         }
         return "UNKNOWN";
     };
 
     // Step 3: Update heartbeat table (create entry if needed)
-    auto it = std::find_if(nodes_.begin(), nodes_.end(),
-        [&](const NodeInfo &n) { return n.name == msg->node_name; });
-    if (it == nodes_.end()) {
-        nodes_.push_back(NodeInfo{msg->node_name});
-        it = std::prev(nodes_.end());
+    auto node_it = std::find_if(
+        monitored_nodes_.begin(), monitored_nodes_.end(),
+        [&](const NodeInfo& node_info) { return node_info.node_name == shared_answer_msg->node_name; });
+    if (node_it == monitored_nodes_.end()) {
+        monitored_nodes_.push_back(NodeInfo{shared_answer_msg->node_name});
+        node_it = std::prev(monitored_nodes_.end());
     }
-    if (msg->timestamp.sec == 0 && msg->timestamp.nanosec == 0) {
-        it->last_heartbeat = this->now();
+
+    if (shared_answer_msg->timestamp.sec == 0 && shared_answer_msg->timestamp.nanosec == 0) {
+        node_it->last_heartbeat = this->now();
     } else {
-        it->last_heartbeat = rclcpp::Time(msg->timestamp);
+        node_it->last_heartbeat = rclcpp::Time(shared_answer_msg->timestamp);
     }
-    it->is_alive = true;
+    node_it->is_alive = true;
 
     // Step 4: Log only on status change (avoid log spam)
-    if (it->last_state != status) {
-        logEvent("[Answer] " + msg->node_name + " -> " + statusToString(status));
-        it->last_state = status;
+    if (node_it->last_state != reported_status) {
+        logEvent("[Answer] " + shared_answer_msg->node_name + " -> " +
+                 convertStatusToString(reported_status));
+        node_it->last_state = reported_status;
     }
 
     // Step 5: Log first time a node comes online
-    if (!it->was_alive) {
-        it->was_alive = true;
-        logEvent("[Node] " + msg->node_name + " ist online");
-        RCLCPP_INFO(this->get_logger(), "[Node] %s ist online", msg->node_name.c_str());
+    if (!node_it->was_alive) {
+        node_it->was_alive = true;
+        logEvent("[Node] " + shared_answer_msg->node_name + " ist online");
+        RCLCPP_INFO(this->get_logger(), "[Node] %s ist online", shared_answer_msg->node_name.c_str());
     }
 
     // Step 6: Decode planner DONE info codes explicitly (no generic DONE flag).
-    if (status == AnswerStates::DONE && is_planner_msg) {
-        if (msg->info == "DONE_EXPLORATION_COMPLETE") {
-            planner_exploration_done_ = true;
+    if (reported_status == AnswerStates::DONE && is_planner_node_msg) {
+        if (shared_answer_msg->info == "DONE_EXPLORATION_COMPLETE") {
+            is_planner_exploration_completed_ = true;
             logEvent("[Planner] DONE_EXPLORATION_COMPLETE");
-        } else if (msg->info == "DONE_RETURN_HOME_REACHED") {
-            planner_return_home_done_ = true;
+        } else if (shared_answer_msg->info == "DONE_RETURN_HOME_REACHED") {
+            is_planner_return_home_completed_ = true;
             logEvent("[Planner] DONE_RETURN_HOME_REACHED");
         } else {
-            logEvent("[Planner] DONE with unknown info: " + msg->info);
+            logEvent("[Planner] DONE with unknown info: " + shared_answer_msg->info);
         }
     }
 }
 
 /**
- * @brief Cache the latest binary octomap message for ground estimation.
- * @param msg Incoming octomap message.
+ * @brief Caches the most recent Octomap for landing ground estimation.
+ * @param octomap_msg Binary encoded Octomap data.
  */
-void StateMachine::onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg)
-{
+void StateMachine::onOctomap(const octomap_msgs::msg::Octomap::SharedPtr octomap_msg) {
     // Step 1: Validate input
-    if (!msg) {
+    if (!octomap_msg) {
         return;
     }
-    if (!msg->binary) {
-        RCLCPP_WARN(this->get_logger(), "Received non-binary octomap on '%s', expected binary map.", topic_octomap_.c_str());
+    if (!octomap_msg->binary) {
+        RCLCPP_WARN(this->get_logger(), "Received non-binary octomap on '%s', expected binary map.",
+                    topic_octomap_.c_str());
         return;
     }
 
     // Step 2: Convert message to OcTree
-    octomap::AbstractOcTree *tree_raw = octomap_msgs::binaryMsgToMap(*msg);
-    if (!tree_raw) {
+    octomap::AbstractOcTree* raw_octomap_tree = octomap_msgs::binaryMsgToMap(*octomap_msg);
+    if (!raw_octomap_tree) {
         RCLCPP_WARN(this->get_logger(), "Failed to convert octomap message.");
         return;
     }
 
-    auto *tree = dynamic_cast<octomap::OcTree *>(tree_raw);
-    if (!tree) {
-        delete tree_raw;
+    auto* concrete_octomap_tree = dynamic_cast<octomap::OcTree*>(raw_octomap_tree);
+    if (!concrete_octomap_tree) {
+        delete raw_octomap_tree;
         RCLCPP_WARN(this->get_logger(), "Octomap conversion yielded unsupported tree type.");
         return;
     }
 
     // Step 3: Store map
-    octree_.reset(tree);
-    has_octomap_ = true;
+    latest_octomap_octree_.reset(concrete_octomap_tree);
+    has_received_octomap_ = true;
 }
 
 // #################################################################################################
@@ -408,46 +439,51 @@ void StateMachine::onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg)
 // #################################################################################################
 
 /**
- * @brief Process lantern detections, update tracking, and log results.
- * @param msg Pose array containing detected lantern positions.
+ * @brief Callback function periodically invoked to update lantern detection status.
+ * @param pose_array_msg Array containing the current set of lantern poses in the field of view.
  */
-void StateMachine::onLanternDetections(const geometry_msgs::msg::PoseArray::SharedPtr msg)
-{
-    if (!msg) {
+void StateMachine::onLanternDetections(const geometry_msgs::msg::PoseArray::SharedPtr pose_array_msg) {
+    if (!pose_array_msg) {
         return;
     }
 
-    detected_lantern_count_ = msg->poses.size();
+    latest_lantern_count_ = pose_array_msg->poses.size();
 
     // Why: Keep the detector topic as the only source of truth for lantern identity/count.
-    if (detected_lantern_count_ == 0) {
+    if (latest_lantern_count_ == 0) {
         logEvent("[Lantern]: empty pose array received");
     }
 
-    for (size_t i = 0; i < msg->poses.size(); ++i) {
-        geometry_msgs::msg::PoseStamped stamped;
-        stamped.header = msg->header;
-        stamped.pose.position = msg->poses[i].position;
-        stamped.pose.orientation.w = 1.0;
+    for (size_t i = 0; i < pose_array_msg->poses.size(); ++i) {
+        geometry_msgs::msg::PoseStamped lantern_pose_stamped;
+        lantern_pose_stamped.header = pose_array_msg->header;
+        lantern_pose_stamped.pose.position = pose_array_msg->poses[i].position;
+        lantern_pose_stamped.pose.orientation.w = 1.0;
 
-        const int id = static_cast<int>(i) + 1;
-        const size_t count = (i < detected_lantern_samples_.size()) ? detected_lantern_samples_[i] : 1U;
-        logLanternPose(stamped, id, count);
-        logEvent("[Lantern] detector reports lantern " + std::to_string(id) + " " + std::to_string(count) + " times");
+        const int lantern_instance_id = static_cast<int>(i) + 1;
+        const size_t sighting_count =
+            (i < lantern_sighting_samples_.size()) ? lantern_sighting_samples_[i] : 1U;
+        logLanternPose(lantern_pose_stamped, lantern_instance_id, sighting_count);
+        logEvent("[Lantern] detector reports lantern " + std::to_string(lantern_instance_id) + " " +
+                 std::to_string(sighting_count) + " times");
     }
 }
 
-void StateMachine::onLanternCounts(const std_msgs::msg::Int32MultiArray::SharedPtr msg)
-{
-    if (!msg) {
+/**
+ * @brief Updates the confidence counts for each detected lantern.
+ * @param int_array_msg Number of sightings reported for each track by the detector.
+ */
+void StateMachine::onLanternCounts(const std_msgs::msg::Int32MultiArray::SharedPtr int_array_msg) {
+    if (!int_array_msg) {
         return;
     }
 
-    detected_lantern_samples_.clear();
-    detected_lantern_samples_.reserve(msg->data.size());
-    for (const auto value : msg->data) {
+    lantern_sighting_samples_.clear();
+    lantern_sighting_samples_.reserve(int_array_msg->data.size());
+    for (const auto sighting_value : int_array_msg->data) {
         // Why: Clamp invalid negatives to keep logging/state checks robust against malformed input.
-        detected_lantern_samples_.push_back(value > 0 ? static_cast<std::size_t>(value) : 0U);
+        lantern_sighting_samples_.push_back(sighting_value > 0 ? static_cast<std::size_t>(sighting_value)
+                                                               : 0U);
     }
 }
 
@@ -456,42 +492,43 @@ void StateMachine::onLanternCounts(const std_msgs::msg::Int32MultiArray::SharedP
 // #################################################################################################
 
 /**
- * @brief Periodic timer callback.
+ * @brief Periodic loop callback for state machine logic (frequency set by pub_state_loop_sec_).
  */
-void StateMachine::onTimer()
-{
+void StateMachine::onTimer() {
     publishState();
     checkHeartbeats();
     checkCheckpoints();
     handleFlagEvents();
 
     // Step 5: Retry TAKEOFF command while waiting for first successful takeoff trajectory.
-    if (state_ == MissionStates::TAKEOFF) {
-        const std::string node_waypoint = nodeNameByIndex(node_waypoint_index_);
-        if (!node_waypoint.empty() && !checkpoint_positions_.empty()) {
-            const auto now = this->now();
-            const double retry_sec = std::max(0.2, takeoff_cmd_retry_sec_);
-            const bool first_retry = last_takeoff_cmd_time_.nanoseconds() == 0;
-            const bool retry_due = !first_retry && (now - last_takeoff_cmd_time_).seconds() >= retry_sec;
-            if (first_retry || retry_due) {
-                geometry_msgs::msg::Point target;
-                target.x = checkpoint_positions_.front().x();
-                target.y = checkpoint_positions_.front().y();
-                target.z = checkpoint_positions_.front().z();
-                sendCommandWithTarget(node_waypoint, Commands::TAKEOFF, target);
-                last_takeoff_cmd_time_ = now;
+    if (current_mission_state_ == MissionStates::TAKEOFF) {
+        const std::string node_waypoint_name = nodeNameByIndex(node_waypoint_index_);
+        if (!node_waypoint_name.empty() && !active_checkpoint_positions_m_.empty()) {
+            const auto current_node_time = this->now();
+            const double command_retry_interval_sec = std::max(0.2, takeoff_cmd_retry_sec_);
+            const bool is_first_retry_attempt = last_takeoff_command_timestamp_.nanoseconds() == 0;
+            const bool is_retry_timer_due =
+                !is_first_retry_attempt &&
+                (current_node_time - last_takeoff_command_timestamp_).seconds() >= command_retry_interval_sec;
+            if (is_first_retry_attempt || is_retry_timer_due) {
+                geometry_msgs::msg::Point target_pos;
+                target_pos.x = active_checkpoint_positions_m_.front().x();
+                target_pos.y = active_checkpoint_positions_m_.front().y();
+                target_pos.z = active_checkpoint_positions_m_.front().z();
+                sendCommandWithTarget(node_waypoint_name, Commands::TAKEOFF, target_pos);
+                last_takeoff_command_timestamp_ = current_node_time;
                 logEvent("[TAKEOFF] retry command sent");
             }
         }
     }
 
     // Step 6: Retry LAND target creation while waiting for octomap/current pose
-    if (state_ == MissionStates::LAND && landing_checkpoint_index_ < 0) {
-        const std::string node_waypoint = nodeNameByIndex(node_waypoint_index_);
-        if (!node_waypoint.empty()) {
-            geometry_msgs::msg::Point target;
-            if (prepareLandingCheckpoint(target)) {
-                sendCommandWithTarget(node_waypoint, Commands::LAND, target);
+    if (current_mission_state_ == MissionStates::LAND && active_landing_checkpoint_index_ < 0) {
+        const std::string node_waypoint_name = nodeNameByIndex(node_waypoint_index_);
+        if (!node_waypoint_name.empty()) {
+            geometry_msgs::msg::Point landing_target_pos;
+            if (prepareLandingCheckpoint(landing_target_pos)) {
+                sendCommandWithTarget(node_waypoint_name, Commands::LAND, landing_target_pos);
             }
         }
     }
@@ -501,167 +538,172 @@ void StateMachine::onTimer()
 }
 
 /**
- * @brief Check all node heartbeats against the timeout and log missing nodes.
+ * @brief Verifies that all expected nodes in the configuration are reporting heartbeats.
  */
-void StateMachine::checkHeartbeats()
-{
-    const auto now = this->now();
-    const auto graph_nodes = this->get_node_names();
+void StateMachine::checkHeartbeats() {
+    const auto current_node_time = this->now();
+    const auto active_graph_node_names = this->get_node_names();
 
     // Step 1: Update alive flags based on last heartbeat
-    for (auto &node : nodes_) {
+    for (auto& node_info : monitored_nodes_) {
         // octomap_server is an external node without our custom heartbeat publisher.
         // For this node we treat ROS graph presence as "alive".
-        if (node.name == "octomap_server") {
-            const auto it = std::find(graph_nodes.begin(), graph_nodes.end(), node.name);
-            node.is_alive = (it != graph_nodes.end());
-            if (node.is_alive) {
-                node.last_heartbeat = now;
+        if (node_info.node_name == "octomap_server") {
+            const auto node_name_it = std::find(active_graph_node_names.begin(),
+                                                active_graph_node_names.end(), node_info.node_name);
+            node_info.is_alive = (node_name_it != active_graph_node_names.end());
+            if (node_info.is_alive) {
+                node_info.last_heartbeat = current_node_time;
             }
             continue;
         }
 
-        if (node.last_heartbeat.nanoseconds() == 0) {
-            node.is_alive = false;
+        if (node_info.last_heartbeat.nanoseconds() == 0) {
+            node_info.is_alive = false;
         } else {
-            const double dt = (now - node.last_heartbeat).seconds();
-            node.is_alive = dt <= alive_tol_sec_;
+            const double heartbeat_elapsed_time_sec =
+                (current_node_time - node_info.last_heartbeat).seconds();
+            node_info.is_alive = heartbeat_elapsed_time_sec <= alive_tol_sec_;
         }
     }
 
     // Step 2: If all nodes are alive, start mission from WAITING
-    if (state_ == MissionStates::WAITING) {
-        const bool all_alive = std::all_of(nodes_.begin(), nodes_.end(),
-            [](const NodeInfo &n) {
-                // octomap_server is external infrastructure and does not publish our custom heartbeat.
-                // Do not block mission startup on its ROS-graph presence.
-                if (n.name == "octomap_server") {
+    if (current_mission_state_ == MissionStates::WAITING) {
+        const bool are_all_monitored_nodes_alive =
+            std::all_of(monitored_nodes_.begin(), monitored_nodes_.end(), [](const NodeInfo& n) {
+                // octomap_server is external infrastructure and does not publish our
+                // custom heartbeat. Do not block mission startup on its ROS-graph
+                // presence.
+                if (n.node_name == "octomap_server") {
                     return true;
                 }
                 return n.is_alive;
             });
-        if (all_alive && start_checkpoint_inserted_) {
+        if (are_all_monitored_nodes_alive && has_takeoff_checkpoint_been_inserted_) {
             changeState(MissionStates::TAKEOFF, "all nodes online");
         }
     }
 
     // Step 3: If we are waiting too long, report who is missing (once)
-    const double state_dt = (now - state_enter_time_).seconds();
-    if (state_ == MissionStates::WAITING && state_dt >= boot_timeout_sec_ && !boot_timeout_reported_) {
-        std::string missing;
-        for (const auto &node : nodes_) {
-            if (!node.is_alive) {
-                if (!missing.empty()) {
-                    missing += ", ";
+    const double state_elapsed_time_sec = (current_node_time - state_entry_timestamp_).seconds();
+    if (current_mission_state_ == MissionStates::WAITING && state_elapsed_time_sec >= boot_timeout_sec_ &&
+        !has_boot_timeout_been_reported_) {
+        std::string missing_nodes_list;
+        for (const auto& node_info : monitored_nodes_) {
+            if (!node_info.is_alive) {
+                if (!missing_nodes_list.empty()) {
+                    missing_nodes_list += ", ";
                 }
-                missing += node.name;
+                missing_nodes_list += node_info.node_name;
             }
         }
-        if (missing.empty()) {
+        if (missing_nodes_list.empty()) {
             logEvent("[Heartbeat] boot timeout reached but no missing nodes detected");
             RCLCPP_INFO(this->get_logger(), "[Heartbeat] boot timeout reached but no missing nodes detected");
         } else {
-            logEvent("[Heartbeat] boot timeout, missing: " + missing);
-            RCLCPP_INFO(this->get_logger(), "[Heartbeat] boot timeout, missing: %s", missing.c_str());
+            logEvent("[Heartbeat] boot timeout, missing: " + missing_nodes_list);
+            RCLCPP_INFO(this->get_logger(), "[Heartbeat] boot timeout, missing: %s",
+                        missing_nodes_list.c_str());
         }
-        boot_timeout_reported_ = true;
+        has_boot_timeout_been_reported_ = true;
     }
 }
 
 /**
- * @brief Evaluate checkpoint progress and update flags.
+ * @brief Computes the distance to the current active waypoint and flags reaching events.
  */
-void StateMachine::checkCheckpoints()
-{
+void StateMachine::checkCheckpoints() {
     // Step 1: Ensure checkpoints exist
-    if (checkpoint_positions_.empty()) {
+    if (active_checkpoint_positions_m_.empty()) {
         return;
     }
 
     // Step 2: Ensure we have an active checkpoint index
-    if (current_checkpoint_index_ < 0) {
-        current_checkpoint_index_ = 0;
+    if (active_checkpoint_index_ < 0) {
+        active_checkpoint_index_ = 0;
         return;
     }
 
     // Step 3: Ensure current pose is known
-    if (!has_current_pose_) {
+    if (!has_received_current_pose_) {
         return;
     }
 
     // Step 4: Guard against out-of-range index
-    if (current_checkpoint_index_ >= static_cast<short>(checkpoint_positions_.size())) {
+    if (active_checkpoint_index_ >= static_cast<short>(active_checkpoint_positions_m_.size())) {
         return;
     }
 
     // Step 5: Compute distance to current checkpoint
-    const auto &cp = checkpoint_positions_[static_cast<size_t>(current_checkpoint_index_)];
-    const double dx = current_position_.x - cp.x();
-    const double dy = current_position_.y - cp.y();
-    const double dz = current_position_.z - cp.z();
-    const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const auto& current_target_waypoint =
+        active_checkpoint_positions_m_[static_cast<size_t>(active_checkpoint_index_)];
+    const double delta_x_m = current_position_m_.x - current_target_waypoint.x();
+    const double delta_y_m = current_position_m_.y - current_target_waypoint.y();
+    const double delta_z_m = current_position_m_.z - current_target_waypoint.z();
+    const double distance_to_waypoint_m =
+        std::sqrt(delta_x_m * delta_x_m + delta_y_m * delta_y_m + delta_z_m * delta_z_m);
 
     // Step 6: If reached, advance index and raise event flag
-    if (dist <= checkpoint_reach_dist_m_) {
-        checkpoint_reached_ = true;
-        current_checkpoint_index_++;
+    if (distance_to_waypoint_m <= checkpoint_reach_dist_m_) {
+        is_checkpoint_reached_ = true;
+        active_checkpoint_index_++;
     }
 }
 
 /**
- * @brief Resolve a node name by index from node_list_.
- * @param index Index in the node list.
- * @return Node name or empty string if index is invalid.
+ * @brief Maps node role indices to their configured string names.
+ * @param list_index Position in node_list_ parameter.
+ * @return std::string Resolved name or empty string if index is invalid.
  */
-std::string StateMachine::nodeNameByIndex(int index) const
-{
-    if (index < 0 || static_cast<size_t>(index) >= node_list_.size()) {
+std::string StateMachine::nodeNameByIndex(int list_index) const {
+    if (list_index < 0 || static_cast<size_t>(list_index) >= node_list_.size()) {
         return std::string();
     }
-    return node_list_[static_cast<size_t>(index)];
+    return node_list_[static_cast<size_t>(list_index)];
 }
 
 /**
- * @brief React to events raised by flags.
+ * @brief Handles logical side effects of state transitions and goal reach flags.
  */
-void StateMachine::handleFlagEvents()
-{
+void StateMachine::handleFlagEvents() {
     // Step 1: React to checkpoint reached event
-    if (checkpoint_reached_) {
-        const int reached_index = static_cast<int>(current_checkpoint_index_) - 1;
-        logEvent("[Event] checkpoint reached index=" + std::to_string(reached_index));
+    if (is_checkpoint_reached_) {
+        const int reached_checkpoint_id = static_cast<int>(active_checkpoint_index_) - 1;
+        logEvent("[Event] checkpoint reached index=" + std::to_string(reached_checkpoint_id));
 
         // Step 2: State transitions based on checkpoint index
-        if (state_ == MissionStates::TAKEOFF && reached_index == 0) {
+        if (current_mission_state_ == MissionStates::TAKEOFF && reached_checkpoint_id == 0) {
             changeState(MissionStates::TRAVELLING, "checkpoint 0 reached");
-        } else if (state_ == MissionStates::TRAVELLING && reached_index == 1) {
+        } else if (current_mission_state_ == MissionStates::TRAVELLING && reached_checkpoint_id == 1) {
             changeState(MissionStates::EXPLORING, "checkpoint 1 reached");
-        } else if (state_ == MissionStates::LAND && reached_index == landing_checkpoint_index_) {
+        } else if (current_mission_state_ == MissionStates::LAND &&
+                   reached_checkpoint_id == active_landing_checkpoint_index_) {
             changeState(MissionStates::DONE, "landing checkpoint reached");
         }
 
         // Step 2: Reset flag to allow next checkpoint event
-        checkpoint_reached_ = false;
+        is_checkpoint_reached_ = false;
     }
 
     // Step 3: Mission target reached -> return home immediately.
-    if (state_ == MissionStates::EXPLORING) {
-        if (detected_lantern_count_ >= kRequiredLanternCount) {
+    if (current_mission_state_ == MissionStates::EXPLORING) {
+        if (latest_lantern_count_ >= kRequiredLanternCount) {
             changeState(MissionStates::RETURN_HOME, "lantern goal reached");
         }
     }
 
-    // Step 4: Start landing after planner confirms return-home, or when home target is physically reached.
-    if (state_ == MissionStates::RETURN_HOME && planner_return_home_done_) {
+    // Step 4: Start landing after planner confirms return-home, or when home
+    // target is physically reached.
+    if (current_mission_state_ == MissionStates::RETURN_HOME && is_planner_return_home_completed_) {
         changeState(MissionStates::LAND, "planner reported return-home complete");
-    } else if (state_ == MissionStates::RETURN_HOME && has_current_pose_ &&
-               start_checkpoint_inserted_ && !checkpoint_positions_.empty()) {
-        const auto &home_cp = checkpoint_positions_.front();
-        geometry_msgs::msg::Point home_target;
-        home_target.x = home_cp.x();
-        home_target.y = home_cp.y();
-        home_target.z = home_cp.z();
-        if (distance3(current_position_, home_target) <= checkpoint_reach_dist_m_) {
+    } else if (current_mission_state_ == MissionStates::RETURN_HOME && has_received_current_pose_ &&
+               has_takeoff_checkpoint_been_inserted_ && !active_checkpoint_positions_m_.empty()) {
+        const auto& home_waypoint_pos = active_checkpoint_positions_m_.front();
+        geometry_msgs::msg::Point home_target_pos;
+        home_target_pos.x = home_waypoint_pos.x();
+        home_target_pos.y = home_waypoint_pos.y();
+        home_target_pos.z = home_waypoint_pos.z();
+        if (calculateEuclideanDistance3D(current_position_m_, home_target_pos) <= checkpoint_reach_dist_m_) {
             changeState(MissionStates::LAND, "return-home target reached");
         }
     }
@@ -672,100 +714,98 @@ void StateMachine::handleFlagEvents()
 // #################################################################################################
 
 /**
- * @brief Update current position from state estimate.
- * @param msg Odometry message containing the current pose.
+ * @brief Receives the current UAV state estimate and updates local position.
+ * @param odometry_msg Standard odometry message containing current pose and frame.
  */
-void StateMachine::onCurrentStateEst(const nav_msgs::msg::Odometry::SharedPtr msg)
-{
-    if (!msg) {
+void StateMachine::onCurrentStateEst(const nav_msgs::msg::Odometry::SharedPtr odometry_msg) {
+    if (!odometry_msg) {
         return;
     }
 
-    current_position_ = msg->pose.pose.position;
-    has_current_pose_ = true;
-    if (!msg->header.frame_id.empty()) {
-        current_pose_frame_id_ = msg->header.frame_id;
+    current_position_m_ = odometry_msg->pose.pose.position;
+    has_received_current_pose_ = true;
+    if (!odometry_msg->header.frame_id.empty()) {
+        current_pose_frame_id_ = odometry_msg->header.frame_id;
     }
 
     // Step 1: Try to insert takeoff checkpoint once a valid pose is available
     tryInsertStartCheckpoint();
 
     // Step 2: Append path point if far enough from last point
-    if (path_points_.empty()) {
-        path_points_.push_back(current_position_);
+    if (flight_path_points_.empty()) {
+        flight_path_points_.push_back(current_position_m_);
         return;
     }
-    const auto &last = path_points_.back();
-    const double dx = current_position_.x - last.x;
-    const double dy = current_position_.y - last.y;
-    const double dz = current_position_.z - last.z;
-    const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-    if (dist >= path_sample_dist_m_) {
-        path_points_.push_back(current_position_);
+    const auto& last_path_point = flight_path_points_.back();
+    const double delta_x_m = current_position_m_.x - last_path_point.x;
+    const double delta_y_m = current_position_m_.y - last_path_point.y;
+    const double delta_z_m = current_position_m_.z - last_path_point.z;
+    const double accumulated_distance_m =
+        std::sqrt(delta_x_m * delta_x_m + delta_y_m * delta_y_m + delta_z_m * delta_z_m);
+    if (accumulated_distance_m >= path_sample_dist_m_) {
+        flight_path_points_.push_back(current_position_m_);
     }
 }
 
 /**
- * @brief Publish a line-strip visualization of the flight path.
+ * @brief Publishes a LINE_STRIP marker illustrating the UAV's flight trajectory.
  */
-void StateMachine::publishPathViz()
-{
-    if (path_points_.size() < 2) {
+void StateMachine::publishPathViz() {
+    if (flight_path_points_.size() < 2) {
         return;
     }
 
-    visualization_msgs::msg::Marker line;
-    line.header.frame_id = current_pose_frame_id_;
-    line.header.stamp = this->now();
-    line.ns = "flight_path";
-    line.id = 0;
-    line.type = visualization_msgs::msg::Marker::LINE_STRIP;
-    line.action = visualization_msgs::msg::Marker::ADD;
-    line.scale.x = 0.08; // Line width
-    line.color.r = 0.1f;
-    line.color.g = 0.9f;
-    line.color.b = 0.2f;
-    line.color.a = 1.0f;
-    line.points = path_points_;
+    visualization_msgs::msg::Marker trajectory_line_marker;
+    trajectory_line_marker.header.frame_id = current_pose_frame_id_;
+    trajectory_line_marker.header.stamp = this->now();
+    trajectory_line_marker.ns = "flight_path";
+    trajectory_line_marker.id = 0;
+    trajectory_line_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+    trajectory_line_marker.action = visualization_msgs::msg::Marker::ADD;
+    trajectory_line_marker.scale.x = 0.08;  // Line width
+    trajectory_line_marker.color.r = 0.1f;
+    trajectory_line_marker.color.g = 0.9f;
+    trajectory_line_marker.color.b = 0.2f;
+    trajectory_line_marker.color.a = 1.0f;
+    trajectory_line_marker.points = flight_path_points_;
 
-    pub_viz_path_flight_->publish(line);
+    pub_viz_path_flight_->publish(trajectory_line_marker);
 }
 
 /**
- * @brief Publish checkpoint markers for visualization.
+ * @brief Publishes SPHERE markers illustrating mission waypoints.
  */
-void StateMachine::publishCheckpointViz()
-{
-    if (checkpoint_positions_.empty()) {
+void StateMachine::publishCheckpointViz() {
+    if (active_checkpoint_positions_m_.empty()) {
         return;
     }
 
-    visualization_msgs::msg::MarkerArray markers;
-    markers.markers.reserve(checkpoint_positions_.size());
+    visualization_msgs::msg::MarkerArray checkpoint_markers;
+    checkpoint_markers.markers.reserve(active_checkpoint_positions_m_.size());
 
-    for (size_t i = 0; i < checkpoint_positions_.size(); ++i) {
-        visualization_msgs::msg::Marker m;
-        m.header.frame_id = current_pose_frame_id_;
-        m.header.stamp = this->now();
-        m.ns = "checkpoints";
-        m.id = static_cast<int>(i);
-        m.type = visualization_msgs::msg::Marker::SPHERE;
-        m.action = visualization_msgs::msg::Marker::ADD;
-        m.scale.x = 0.5;
-        m.scale.y = 0.5;
-        m.scale.z = 0.5;
-        m.color.r = 0.9f;
-        m.color.g = 0.2f;
-        m.color.b = 0.2f;
-        m.color.a = 1.0f;
-        m.pose.orientation.w = 1.0;
-        m.pose.position.x = checkpoint_positions_[i].x();
-        m.pose.position.y = checkpoint_positions_[i].y();
-        m.pose.position.z = checkpoint_positions_[i].z();
-        markers.markers.push_back(m);
+    for (size_t waypoint_idx = 0; waypoint_idx < active_checkpoint_positions_m_.size(); ++waypoint_idx) {
+        visualization_msgs::msg::Marker waypoint_marker;
+        waypoint_marker.header.frame_id = current_pose_frame_id_;
+        waypoint_marker.header.stamp = this->now();
+        waypoint_marker.ns = "checkpoints";
+        waypoint_marker.id = static_cast<int>(waypoint_idx);
+        waypoint_marker.type = visualization_msgs::msg::Marker::SPHERE;
+        waypoint_marker.action = visualization_msgs::msg::Marker::ADD;
+        waypoint_marker.scale.x = 0.5;
+        waypoint_marker.scale.y = 0.5;
+        waypoint_marker.scale.z = 0.5;
+        waypoint_marker.color.r = 0.9f;
+        waypoint_marker.color.g = 0.2f;
+        waypoint_marker.color.b = 0.2f;
+        waypoint_marker.color.a = 1.0f;
+        waypoint_marker.pose.orientation.w = 1.0;
+        waypoint_marker.pose.position.x = active_checkpoint_positions_m_[waypoint_idx].x();
+        waypoint_marker.pose.position.y = active_checkpoint_positions_m_[waypoint_idx].y();
+        waypoint_marker.pose.position.z = active_checkpoint_positions_m_[waypoint_idx].z();
+        checkpoint_markers.markers.push_back(waypoint_marker);
     }
 
-    pub_viz_checkpoint_->publish(markers);
+    pub_viz_checkpoint_->publish(checkpoint_markers);
 }
 
 // #################################################################################################
@@ -773,119 +813,119 @@ void StateMachine::publishCheckpointViz()
 // #################################################################################################
 
 /**
- * @brief Insert a takeoff checkpoint (start position + 5m) at the front of the list.
+ * @brief At initialization, attempts to insert a 5m takeoff checkpoint relative to the UAV's current start.
  */
-void StateMachine::tryInsertStartCheckpoint()
-{
+void StateMachine::tryInsertStartCheckpoint() {
     // Step 1: Insert only once
-    if (start_checkpoint_inserted_) {
+    if (has_takeoff_checkpoint_been_inserted_) {
         return;
     }
 
     // Step 2: Require a valid current pose
-    if (!has_current_pose_) {
+    if (!has_received_current_pose_) {
         return;
     }
 
     // Step 3: Reject zero pose (simulation not running or uninitialized)
-    const double norm = std::sqrt(
-        current_position_.x * current_position_.x +
-        current_position_.y * current_position_.y +
-        current_position_.z * current_position_.z);
-    if (norm < kMinStartPosNormM) {
+    const double trajectory_origin_norm_m = std::sqrt(current_position_m_.x * current_position_m_.x +
+                                                      current_position_m_.y * current_position_m_.y +
+                                                      current_position_m_.z * current_position_m_.z);
+    if (trajectory_origin_norm_m < kMinStartPosNormM) {
         return;
     }
 
     // Step 4: Build start checkpoint with fixed takeoff height
-    const Eigen::Vector3d start_cp(
-        current_position_.x,
-        current_position_.y,
-        current_position_.z + kTakeoffHeightM);
+    const Eigen::Vector3d takeoff_waypoint_pos_m(current_position_m_.x, current_position_m_.y,
+                                                 current_position_m_.z + kTakeoffHeightM);
 
     // Step 5: Rebuild list with start checkpoint at front
-    checkpoint_positions_.clear();
-    checkpoint_positions_.reserve(checkpoint_positions_base_.size() + 1);
-    checkpoint_positions_.push_back(start_cp);
-    checkpoint_positions_.insert(
-        checkpoint_positions_.end(),
-        checkpoint_positions_base_.begin(),
-        checkpoint_positions_base_.end());
+    active_checkpoint_positions_m_.clear();
+    active_checkpoint_positions_m_.reserve(base_checkpoint_positions_m_.size() + 1);
+    active_checkpoint_positions_m_.push_back(takeoff_waypoint_pos_m);
+    active_checkpoint_positions_m_.insert(active_checkpoint_positions_m_.end(),
+                                          base_checkpoint_positions_m_.begin(),
+                                          base_checkpoint_positions_m_.end());
 
     // Step 6: Reset checkpoint index to start from the new first checkpoint
-    current_checkpoint_index_ = -1;
-    start_checkpoint_inserted_ = true;
+    active_checkpoint_index_ = -1;
+    has_takeoff_checkpoint_been_inserted_ = true;
     logEvent("[Checkpoint] inserted takeoff checkpoint at start position");
 }
 
 /**
- * @brief Estimate the highest occupied point below the UAV in a local XY radius.
- * @param ground_z_out Output ground height estimate.
- * @return True if at least one downward ray hit is found.
+ * @brief Raycasts downward into the current Octomap to find a landing surface.
+ * @param calculated_ground_z_m Output variable for the estimated Z-elevation in meters.
+ * @return bool True if a valid ground surface was found below the UAV.
  */
-bool StateMachine::estimateGroundHeight(double &ground_z_out) const
-{
+bool StateMachine::estimateGroundHeight(double& calculated_ground_z_m) const {
     // Step 1: Require pose and map
-    if (!has_current_pose_ || !has_octomap_ || !octree_) {
+    if (!has_received_current_pose_ || !has_received_octomap_ || !latest_octomap_octree_) {
         return false;
     }
 
     // Step 2: Prepare local XY grid sampling and downward ray direction
-    const double base_radius = std::max(0.0, landing_xy_radius_m_);
-    const double max_radius = std::max(base_radius, landing_xy_radius_max_m_);
-    const double radius_increment = std::max(0.05, landing_xy_radius_increment_m_);
-    const double step = std::max(0.05, octree_->getResolution());
-    const octomap::point3d dir_down(0.0F, 0.0F, -1.0F);
-    const double z_start = current_position_.z;
+    const double base_search_radius_m = std::max(0.0, landing_xy_radius_m_);
+    const double max_search_radius_m = std::max(base_search_radius_m, landing_xy_radius_max_m_);
+    const double search_radius_increment_m = std::max(0.05, landing_xy_radius_increment_m_);
+    const double sampling_step_m = std::max(0.05, latest_octomap_octree_->getResolution());
+    const octomap::point3d ray_direction_down(0.0F, 0.0F, -1.0F);
+    const double ray_start_z_m = current_position_m_.z;
 
     // Step 3: Probe from small to larger radii and accept when hit quality is sufficient.
-    for (double radius = base_radius; radius <= max_radius + 1e-6; radius += radius_increment) {
-        bool hit_found = false;
-        double best_ground_z = -std::numeric_limits<double>::infinity();
-        int sample_count = 0;
-        int hit_count = 0;
+    for (double current_search_radius_m = base_search_radius_m;
+         current_search_radius_m <= max_search_radius_m + 1e-6;
+         current_search_radius_m += search_radius_increment_m) {
+        bool is_hit_found = false;
+        double best_elevation_z_m = -std::numeric_limits<double>::infinity();
+        int total_sample_points_count = 0;
+        int successful_ray_hits_count = 0;
 
-        for (double dx = -radius; dx <= radius + 1e-6; dx += step) {
-            for (double dy = -radius; dy <= radius + 1e-6; dy += step) {
-                if ((dx * dx + dy * dy) > (radius * radius)) {
+        for (double offset_x_m = -current_search_radius_m; offset_x_m <= current_search_radius_m + 1e-6;
+             offset_x_m += sampling_step_m) {
+            for (double offset_y_m = -current_search_radius_m; offset_y_m <= current_search_radius_m + 1e-6;
+                 offset_y_m += sampling_step_m) {
+                if ((offset_x_m * offset_x_m + offset_y_m * offset_y_m) >
+                    (current_search_radius_m * current_search_radius_m)) {
                     continue;
                 }
 
-                ++sample_count;
-                const octomap::point3d origin(
-                    static_cast<float>(current_position_.x + dx),
-                    static_cast<float>(current_position_.y + dy),
-                    static_cast<float>(z_start));
-                octomap::point3d hit;
-                const bool ray_hit = octree_->castRay(origin, dir_down, hit, true, landing_probe_depth_m_);
-                if (!ray_hit) {
+                ++total_sample_points_count;
+                const octomap::point3d ray_origin(static_cast<float>(current_position_m_.x + offset_x_m),
+                                                  static_cast<float>(current_position_m_.y + offset_y_m),
+                                                  static_cast<float>(ray_start_z_m));
+                octomap::point3d ray_hit_point;
+                const bool is_ray_hit_successful = latest_octomap_octree_->castRay(
+                    ray_origin, ray_direction_down, ray_hit_point, true, landing_probe_depth_m_);
+                if (!is_ray_hit_successful) {
                     continue;
                 }
 
-                const double hit_z = static_cast<double>(hit.z());
-                if (hit_z >= z_start) {
+                const double hit_elevation_z_m = static_cast<double>(ray_hit_point.z());
+                if (hit_elevation_z_m >= ray_start_z_m) {
                     continue;
                 }
 
-                ++hit_count;
-                if (!hit_found || hit_z > best_ground_z) {
-                    best_ground_z = hit_z;
-                    hit_found = true;
+                ++successful_ray_hits_count;
+                if (!is_hit_found || hit_elevation_z_m > best_elevation_z_m) {
+                    best_elevation_z_m = hit_elevation_z_m;
+                    is_hit_found = true;
                 }
             }
         }
 
-        if (!hit_found) {
+        if (!is_hit_found) {
             continue;
         }
 
-        const int min_hits_abs = std::max(1, landing_min_hit_count_);
-        const double min_hit_fraction = std::clamp(landing_min_hit_fraction_, 0.0, 1.0);
-        const int min_hits_fraction =
-            static_cast<int>(std::ceil(min_hit_fraction * static_cast<double>(std::max(1, sample_count))));
-        const int min_hits_required = std::max(min_hits_abs, min_hits_fraction);
+        const int min_hits_required_absolute = std::max(1, landing_min_hit_count_);
+        const double minimum_hit_fraction_ratio = std::clamp(landing_min_hit_fraction_, 0.0, 1.0);
+        const int min_hits_required_by_fraction = static_cast<int>(std::ceil(
+            minimum_hit_fraction_ratio * static_cast<double>(std::max(1, total_sample_points_count))));
+        const int total_min_hits_required =
+            std::max(min_hits_required_absolute, min_hits_required_by_fraction);
 
-        if (hit_count >= min_hits_required) {
-            ground_z_out = best_ground_z;
+        if (successful_ray_hits_count >= total_min_hits_required) {
+            calculated_ground_z_m = best_elevation_z_m;
             return true;
         }
     }
@@ -895,56 +935,58 @@ bool StateMachine::estimateGroundHeight(double &ground_z_out) const
 }
 
 /**
- * @brief Build a dynamic landing checkpoint and point command target from map-estimated ground.
- * @param target_out Landing target output.
- * @return True if target generation succeeded.
+ * @brief Generates a safe landing waypoint based on local terrain or start-fallback.
+ * @param landing_target_out Output coordinate for the landing maneuver.
+ * @return bool True if a valid landing target could be calculated.
  */
-bool StateMachine::prepareLandingCheckpoint(geometry_msgs::msg::Point &target_out)
-{
+bool StateMachine::prepareLandingCheckpoint(geometry_msgs::msg::Point& landing_target_out) {
     // Step 1: Require current pose and a valid ground estimate
-    double ground_z = 0.0;
-    if (!has_current_pose_) {
+    double estimated_ground_z_m = 0.0;
+    if (!has_received_current_pose_) {
         return false;
     }
 
-    const bool map_ground_ok = estimateGroundHeight(ground_z);
-    if (!map_ground_ok && landing_use_start_fallback_ &&
-        start_checkpoint_inserted_ && !checkpoint_positions_.empty()) {
-        // Fallback: derive original start ground from inserted takeoff checkpoint (start + kTakeoffHeightM).
-        const auto &start_cp = checkpoint_positions_.front();
-        ground_z = start_cp.z() - kTakeoffHeightM;
-        target_out.x = start_cp.x();
-        target_out.y = start_cp.y();
-        target_out.z = ground_z + landing_clearance_m_;
+    const bool is_map_ground_estimation_successful = estimateGroundHeight(estimated_ground_z_m);
+    if (!is_map_ground_estimation_successful && landing_use_start_fallback_ &&
+        has_takeoff_checkpoint_been_inserted_ && !active_checkpoint_positions_m_.empty()) {
+        // Fallback: derive original start ground from inserted takeoff checkpoint
+        // (start + kTakeoffHeightM).
+        const auto& start_takeoff_waypoint = active_checkpoint_positions_m_.front();
+        estimated_ground_z_m = start_takeoff_waypoint.z() - kTakeoffHeightM;
+        landing_target_out.x = start_takeoff_waypoint.x();
+        landing_target_out.y = start_takeoff_waypoint.y();
+        landing_target_out.z = estimated_ground_z_m + landing_clearance_m_;
         logEvent("[LAND] fallback to start checkpoint target");
-    } else if (!map_ground_ok) {
+    } else if (!is_map_ground_estimation_successful) {
         return false;
     } else {
         // Step 2: Build target above local ground
-        target_out.x = current_position_.x;
-        target_out.y = current_position_.y;
-        target_out.z = ground_z + landing_clearance_m_;
+        landing_target_out.x = current_position_m_.x;
+        landing_target_out.y = current_position_m_.y;
+        landing_target_out.z = estimated_ground_z_m + landing_clearance_m_;
     }
 
     // Step 3: Ensure this is an actual descent target
-    if (target_out.z >= (current_position_.z - kMinLandingDescentM)) {
+    if (landing_target_out.z >= (current_position_m_.z - kMinLandingDescentM)) {
         logEvent("[LAND] target too close or above current altitude");
         return false;
     }
 
     // Step 4: Append or update dedicated landing checkpoint and activate it
-    const Eigen::Vector3d landing_cp(target_out.x, target_out.y, target_out.z);
-    if (landing_checkpoint_index_ >= 0 &&
-        landing_checkpoint_index_ < static_cast<short>(checkpoint_positions_.size())) {
-        checkpoint_positions_[static_cast<size_t>(landing_checkpoint_index_)] = landing_cp;
+    const Eigen::Vector3d landing_waypoint_pos_m(landing_target_out.x, landing_target_out.y,
+                                                 landing_target_out.z);
+    if (active_landing_checkpoint_index_ >= 0 &&
+        active_landing_checkpoint_index_ < static_cast<short>(active_checkpoint_positions_m_.size())) {
+        active_checkpoint_positions_m_[static_cast<size_t>(active_landing_checkpoint_index_)] =
+            landing_waypoint_pos_m;
     } else {
-        checkpoint_positions_.push_back(landing_cp);
-        landing_checkpoint_index_ = static_cast<short>(checkpoint_positions_.size() - 1);
+        active_checkpoint_positions_m_.push_back(landing_waypoint_pos_m);
+        active_landing_checkpoint_index_ = static_cast<short>(active_checkpoint_positions_m_.size() - 1);
     }
-    current_checkpoint_index_ = landing_checkpoint_index_;
-    checkpoint_reached_ = false;
+    active_checkpoint_index_ = active_landing_checkpoint_index_;
+    is_checkpoint_reached_ = false;
 
-    logEvent("[LAND] checkpoint set z=" + std::to_string(target_out.z));
+    logEvent("[LAND] checkpoint set z=" + std::to_string(landing_target_out.z));
     return true;
 }
 
@@ -953,179 +995,195 @@ bool StateMachine::prepareLandingCheckpoint(geometry_msgs::msg::Point &target_ou
 // #################################################################################################
 
 /**
- * @brief Log a lantern detection to CSV with id, date, user, count, and position.
- * @param pose Lantern pose to log (position is used, timestamp comes from system clock).
- * @param id Lantern track id.
- * @param count Number of samples for this track.
+ * @brief Generates a persistent CSV entry for a lantern discovery event.
+ * @param lantern_pose_stamped Pose data of the lantern.
+ * @param instance_id Track ID assigned by the detection package.
+ * @param total_detections_count Number of times the tracker has confirmed this lantern.
  */
-void StateMachine::logLanternPose(const geometry_msgs::msg::PoseStamped &pose, int id, size_t count)
-{
+void StateMachine::logLanternPose(const geometry_msgs::msg::PoseStamped& lantern_pose_stamped,
+                                  int instance_id, size_t total_detections_count) {
     // Step 1: Check if logging is enabled
     if (lantern_log_path_.empty()) {
-        return; // Logging disabled
+        return;  // Logging disabled
     }
 
     // Step 2: Read existing CSV (if any)
-    std::vector<std::string> lines;
+    std::vector<std::string> log_file_lines;
     {
-        std::ifstream in(lantern_log_path_);
-        std::string line;
-        while (in.good() && std::getline(in, line)) {
-            if (!line.empty()) {
-                lines.push_back(line);
+        std::ifstream input_file_stream(lantern_log_path_);
+        std::string single_line;
+        while (input_file_stream.good() && std::getline(input_file_stream, single_line)) {
+            if (!single_line.empty()) {
+                log_file_lines.push_back(single_line);
             }
         }
     }
 
     // Step 3: Resolve timestamp from wall/system clock (independent of ROS time)
-    const auto tp = std::chrono::system_clock::now();
-    const auto tt = std::chrono::system_clock::to_time_t(tp);
-    std::tm tm{};
-    gmtime_r(&tt, &tm);
+    const auto system_now_tp = std::chrono::system_clock::now();
+    const auto system_now_tt = std::chrono::system_clock::to_time_t(system_now_tp);
+    std::tm system_now_tm{};
+#ifdef _WIN32
+    gmtime_s(&system_now_tm, &system_now_tt);
+#else
+    gmtime_r(&system_now_tt, &system_now_tm);
+#endif
 
-    std::ostringstream date;
-    date << std::put_time(&tm, "%Y/%m/%d");
+    std::ostringstream date_hour_stream;
+    date_hour_stream << std::put_time(&system_now_tm, "%Y/%m/%d");
 
     // Step 4: Ensure CSV header exists
-    const std::string header = "id,zeit,username,anzahl,x,y,z";
-    if (lines.empty() || lines.front() != header) {
-        lines.insert(lines.begin(), header);
+    const std::string csv_header_row = "id,zeit,username,anzahl,x,y,z";
+    if (log_file_lines.empty() || log_file_lines.front() != csv_header_row) {
+        log_file_lines.insert(log_file_lines.begin(), csv_header_row);
     }
 
     // Step 5: Compose/replace the row for (id, date, user)
-    const char *user_env = std::getenv("USER");
-    const std::string user = (user_env && *user_env) ? std::string(user_env) : std::string("unknown");
-    const std::string id_str = std::to_string(id);
-    const std::string date_str = date.str();
-    const std::string new_line = id_str + "," + date_str + "," +
-        user + "," + std::to_string(count) + "," +
-        std::to_string(pose.pose.position.x) + "," +
-        std::to_string(pose.pose.position.y) + "," +
-        std::to_string(pose.pose.position.z);
+    const char* environment_user_ptr = std::getenv("USER");
+    const std::string username_string = (environment_user_ptr && *environment_user_ptr)
+                                            ? std::string(environment_user_ptr)
+                                            : std::string("unknown");
+    const std::string instance_id_str = std::to_string(instance_id);
+    const std::string date_hour_str = date_hour_stream.str();
+    const std::string new_csv_row = instance_id_str + "," + date_hour_str + "," + username_string + "," +
+                                    std::to_string(total_detections_count) + "," +
+                                    std::to_string(lantern_pose_stamped.pose.position.x) + "," +
+                                    std::to_string(lantern_pose_stamped.pose.position.y) + "," +
+                                    std::to_string(lantern_pose_stamped.pose.position.z);
 
-    bool updated = false;
-    for (size_t i = 1; i < lines.size(); ++i) {
-        const auto &row = lines[i];
-        const auto first = row.find(',');
-        const auto second = row.find(',', first + 1);
-        const auto third = row.find(',', second + 1);
-        if (first == std::string::npos || second == std::string::npos || third == std::string::npos) {
+    bool has_been_updated = false;
+    for (size_t line_idx = 1; line_idx < log_file_lines.size(); ++line_idx) {
+        const auto& current_row_text = log_file_lines[line_idx];
+        const auto first_comma_pos = current_row_text.find(',');
+        const auto second_comma_pos = current_row_text.find(',', first_comma_pos + 1);
+        const auto third_comma_pos = current_row_text.find(',', second_comma_pos + 1);
+        if (first_comma_pos == std::string::npos || second_comma_pos == std::string::npos ||
+            third_comma_pos == std::string::npos) {
             continue;
         }
-        const std::string row_id = row.substr(0, first);
-        const std::string row_date = row.substr(first + 1, second - first - 1);
-        const std::string row_user = row.substr(second + 1, third - second - 1);
-        if (row_id == id_str && row_date == date_str && row_user == user) {
-            lines[i] = new_line;
-            updated = true;
+        const std::string existing_row_id = current_row_text.substr(0, first_comma_pos);
+        const std::string existing_row_date =
+            current_row_text.substr(first_comma_pos + 1, second_comma_pos - first_comma_pos - 1);
+        const std::string existing_row_user =
+            current_row_text.substr(second_comma_pos + 1, third_comma_pos - second_comma_pos - 1);
+        if (existing_row_id == instance_id_str && existing_row_date == date_hour_str &&
+            existing_row_user == username_string) {
+            log_file_lines[line_idx] = new_csv_row;
+            has_been_updated = true;
             break;
         }
     }
 
-    if (!updated) {
-        lines.push_back(new_line);
+    if (!has_been_updated) {
+        log_file_lines.push_back(new_csv_row);
     }
 
     // Step 6: Write CSV back to disk
-    std::ofstream out(lantern_log_path_, std::ios::trunc);
-    if (!out) {
+    std::ofstream output_file_stream(lantern_log_path_, std::ios::trunc);
+    if (!output_file_stream) {
         RCLCPP_WARN(this->get_logger(), "Failed to open lantern log file: %s", lantern_log_path_.c_str());
         return;
     }
 
-    for (const auto &row : lines) {
-        out << row << "\n";
+    for (const auto& log_row : log_file_lines) {
+        output_file_stream << log_row << "\n";
     }
 }
 
 /**
- * @brief Append a formatted event line to the event log.
- * @param message Log message content (without prefix).
+ * @brief Outputs an event string to the node's configured text log file.
+ * @param event_message Textual description of the system event.
  */
-void StateMachine::logEvent(const std::string &message)
-{
+void StateMachine::logEvent(const std::string& event_message) {
     if (event_log_path_.empty()) {
-        return; // Logging disabled
+        return;  // Logging disabled
     }
 
-    std::ofstream out(event_log_path_, std::ios::app); // Append to log file
-    if (!out) {
+    std::ofstream event_log_stream(event_log_path_, std::ios::app);  // Append to log file
+    if (!event_log_stream) {
         RCLCPP_WARN(this->get_logger(), "Failed to open event log file: %s", event_log_path_.c_str());
         return;
     }
 
-    const auto now_sys = std::chrono::system_clock::now();
-    const double now_sec = std::chrono::duration<double>(now_sys.time_since_epoch()).count();
+    const auto system_now_tp = std::chrono::system_clock::now();
+    const double timestamp_sec = std::chrono::duration<double>(system_now_tp.time_since_epoch()).count();
 
-    std::ostringstream line; // Build log line with required prefix
-    line << "[" << std::fixed << std::setprecision(3) << now_sec << "]"
-         << "[StateMachine] "
-         << message;
+    std::ostringstream log_line_formatter;  // Build log line with required prefix
+    log_line_formatter << "[" << std::fixed << std::setprecision(3) << timestamp_sec << "]"
+                       << "[StateMachine] " << event_message;
 
-    out << line.str() << "\n"; // Timestamped log line
+    event_log_stream << log_line_formatter.str() << "\n";  // Timestamped log line
 }
 
 /**
- * @brief Log a command with target node and command name.
- * @param recv_node Target node name.
- * @param cmd Command enum value.
+ * @brief Records a sent command for persistence in the event log.
+ * @param receiver_node_name Target of the command.
+ * @param command_enum The command being dispatched.
  */
-void StateMachine::logCommand(const std::string &recv_node, Commands cmd)
-{
-    logEvent("[Command]: -> " + recv_node + " : " + toString(cmd)); // Category + command log
+void StateMachine::logCommand(const std::string& receiver_node_name, Commands command_enum) {
+    logEvent("[Command]: -> " + receiver_node_name + " : " +
+             toString(command_enum));  // Category + command log
 }
 
 /**
- * @brief Convert mission state enum to a readable string.
- * @param state Mission state enum value.
- * @return Readable state name.
+ * @brief Utility to convert MissionStates enum to readable text.
+ * @param current_state enum value to convert.
+ * @return std::string State name.
  */
-std::string StateMachine::toString(MissionStates state)
-{
+std::string StateMachine::toString(MissionStates current_state) {
     // Compact enum-to-string mapping for readable logs and topic output
-    switch (state) {
-        case MissionStates::WAITING:     return "WAITING";
-        case MissionStates::TAKEOFF:     return "TAKEOFF";
-        case MissionStates::TRAVELLING:  return "TRAVELLING";
-        case MissionStates::EXPLORING:   return "EXPLORING";
-        case MissionStates::RETURN_HOME: return "RETURN_HOME";
-        case MissionStates::LAND:        return "LAND";
-        case MissionStates::DONE:        return "DONE";
-        case MissionStates::ERROR:       return "ERROR";
-        case MissionStates::ABORTED:     return "ABORTED";
+    switch (current_state) {
+        case MissionStates::WAITING:
+            return "WAITING";
+        case MissionStates::TAKEOFF:
+            return "TAKEOFF";
+        case MissionStates::TRAVELLING:
+            return "TRAVELLING";
+        case MissionStates::EXPLORING:
+            return "EXPLORING";
+        case MissionStates::RETURN_HOME:
+            return "RETURN_HOME";
+        case MissionStates::LAND:
+            return "LAND";
+        case MissionStates::DONE:
+            return "DONE";
+        case MissionStates::ERROR:
+            return "ERROR";
+        case MissionStates::ABORTED:
+            return "ABORTED";
     }
     return "UNKNOWN";
 }
 
 /**
- * @brief Convert command enum to a readable string.
- * @param cmd Command enum value.
- * @return Readable command name.
+ * @brief Utility to convert Commands enum to readable text.
+ * @param active_command enum value to convert.
+ * @return std::string Command name.
  */
-std::string StateMachine::toString(Commands cmd)
-{
+std::string StateMachine::toString(Commands active_command) {
     // Compact enum-to-string mapping for readable logs and topic output
-    switch (cmd) {
-        case Commands::TAKEOFF:          return "TAKEOFF";
-        case Commands::START:            return "START";
-        case Commands::SWITCH_TO_EXPLORE:return "SWITCH_TO_EXPLORE";
-        case Commands::HOLD:             return "HOLD";
-        case Commands::RETURN_HOME:      return "RETURN_HOME";
-        case Commands::LAND:             return "LAND";
-        case Commands::ABORT:            return "ABORT";
-        case Commands::NONE:             return "NONE";
+    switch (active_command) {
+        case Commands::TAKEOFF:
+            return "TAKEOFF";
+        case Commands::START:
+            return "START";
+        case Commands::SWITCH_TO_EXPLORE:
+            return "SWITCH_TO_EXPLORE";
+        case Commands::HOLD:
+            return "HOLD";
+        case Commands::RETURN_HOME:
+            return "RETURN_HOME";
+        case Commands::LAND:
+            return "LAND";
+        case Commands::ABORT:
+            return "ABORT";
+        case Commands::NONE:
+            return "NONE";
     }
     return "UNKNOWN";
 }
 
-
-
-
-
-
-
-int main(int argc, char **argv)
-{
+int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
     rclcpp::spin(std::make_shared<StateMachine>());
     rclcpp::shutdown();

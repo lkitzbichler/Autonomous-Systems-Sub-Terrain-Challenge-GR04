@@ -1,39 +1,55 @@
+/**
+ * @file path_planner.h
+ * @brief Declaration of the PathPlanner ROS2 node and related types.
+ */
+
 #pragma once
 
-#include "statemachine_pkg/msg/answer.hpp"
-#include "statemachine_pkg/msg/command.hpp"
-#include "protocol.hpp"
-
+#include <cstddef>
+#include <deque>
 #include <geometry_msgs/msg/point.hpp>
 #include <mav_planning_msgs/msg/polynomial_trajectory4_d.hpp>
+#include <memory>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <octomap_msgs/msg/octomap.hpp>
+#include <optional>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <string>
+#include <utility>
+#include <vector>
 #include <visualization_msgs/msg/marker_array.hpp>
 
-#include <memory>
-#include <optional>
-#include <cstddef>
-#include <string>
-#include <vector>
-#include <utility>
-#include <deque>
+#include "protocol.hpp"
+#include "statemachine_pkg/msg/answer.hpp"
+#include "statemachine_pkg/msg/command.hpp"
 
-namespace octomap
-{
+namespace octomap {
 class OcTree;
 }
 
-class PathPlanner : public rclcpp::Node
-{
-public: // PROTOCOL TYPES
+/**
+ * @class PathPlanner
+ * @brief ROS2 node implementing exploration, graph maintenance and trajectory
+ * planning logic.
+ *
+ * The node consumes odometry and octomap data, maintains an internal graph of
+ * visited and frontier locations, and generates short‑term trajectories for a
+ * vehicle to follow.  It integrates with an external state machine via
+ * heartbeat messages and accepts high‑level commands.
+ */
+class PathPlanner : public rclcpp::Node {
+   public:  // PROTOCOL TYPES
     using Commands = statemachine_pkg::protocol::Commands;
     using AnswerStates = statemachine_pkg::protocol::AnswerStates;
 
-private: // INTERNAL TYPES
+   private:  // INTERNAL TYPES
+    /**
+     * @enum PlannerMode
+     * @brief High‑level mode of the planner state machine.
+     */
     enum class PlannerMode : uint8_t {
         IDLE = 0,
         TRANSIT_RECORD = 1,
@@ -44,19 +60,26 @@ private: // INTERNAL TYPES
         ABORTED = 6
     };
 
+    /**
+     * @struct TransitNode
+     * @brief Simple breadcrumb captured during transit_record mode.
+     */
     struct TransitNode {
         int id{0};
         geometry_msgs::msg::Point position{};
         rclcpp::Time stamp{0, 0, RCL_ROS_TIME};
     };
 
-    enum class GraphNodeStatus : uint8_t {
-        UNVISITED = 0,
-        VISITED = 1,
-        FRONTIER = 2,
-        DEAD_END = 3
-    };
+    /**
+     * @enum GraphNodeStatus
+     * @brief Exploration graph node visit state.
+     */
+    enum class GraphNodeStatus : uint8_t { UNVISITED = 0, VISITED = 1, FRONTIER = 2, DEAD_END = 3 };
 
+    /**
+     * @struct GraphNode
+     * @brief Persistent node stored in the exploration graph.
+     */
     struct GraphNode {
         int id{0};
         geometry_msgs::msg::Point position{};
@@ -70,6 +93,10 @@ private: // INTERNAL TYPES
         std::size_t observations{1};
     };
 
+    /**
+     * @struct GraphEdge
+     * @brief Undirected connection between two graph nodes.
+     */
     struct GraphEdge {
         int from_id{0};
         int to_id{0};
@@ -78,12 +105,16 @@ private: // INTERNAL TYPES
         bool valid{true};
     };
 
-    enum class CandidateStatus : uint8_t {
-        FREE = 0,
-        BLOCKED = 1,
-        UNKNOWN = 2
-    };
+    /**
+     * @enum CandidateStatus
+     * @brief Result of probing a direction in the map.
+     */
+    enum class CandidateStatus : uint8_t { FREE = 0, BLOCKED = 1, UNKNOWN = 2 };
 
+    /**
+     * @struct CandidatePoint
+     * @brief A single sampled direction for exploration.
+     */
     struct CandidatePoint {
         geometry_msgs::msg::Point point{};
         double rel_yaw_deg{0.0};
@@ -91,7 +122,7 @@ private: // INTERNAL TYPES
         CandidateStatus status{CandidateStatus::UNKNOWN};
     };
 
-private: // STATE
+   private:  // STATE
     PlannerMode mode_{PlannerMode::IDLE};
     std::string statemachine_state_{"UNKNOWN"};
 
@@ -159,7 +190,7 @@ private: // STATE
     std::string odom_frame_id_;
     std::string map_frame_id_;
 
-private: // PUBS / SUBS / TIMER
+   private:  // PUBS / SUBS / TIMER
     rclcpp::Publisher<statemachine_pkg::msg::Answer>::SharedPtr pub_heartbeat_;
     rclcpp::Publisher<mav_planning_msgs::msg::PolynomialTrajectory4D>::SharedPtr pub_trajectory_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_graph_markers_;
@@ -173,7 +204,7 @@ private: // PUBS / SUBS / TIMER
 
     rclcpp::TimerBase::SharedPtr timer_;
 
-private: // PARAMETERS
+   private:  // PARAMETERS
     // Topics
     std::string topic_cmd_;
     std::string topic_state_;
@@ -250,20 +281,44 @@ private: // PARAMETERS
     double trajectory_min_segment_time_sec_{0.8};
     double trajectory_goal_replan_dist_m_{1.0};
 
-public: // LIFECYCLE
+   public:  // LIFECYCLE
     PathPlanner();
     ~PathPlanner() override;
 
-private: // CALLBACKS
+   private:  // CALLBACKS
+    /**
+     * @brief Process an incoming command from the state machine.
+     * @param msg shared pointer to the command message.
+     */
     void onCommand(const statemachine_pkg::msg::Command::SharedPtr msg);
+    /**
+     * @brief Handle a state string published by the state machine.
+     * @param msg shared pointer to the state message.
+     */
     void onState(const std_msgs::msg::String::SharedPtr msg);
+    /**
+     * @brief Callback for odometry updates.
+     * @param msg shared pointer to the odometry message.
+     */
     void onOdometry(const nav_msgs::msg::Odometry::SharedPtr msg);
+    /**
+     * @brief Receive and convert an octomap message.
+     * @param msg shared pointer to the octomap.
+     */
     void onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg);
+    /**
+     * @brief Periodic timer callback used to drive planning operations.
+     */
     void onTimer();
 
-private: // HELPERS
-    void changeMode(PlannerMode new_mode, const std::string &reason);
-    void updateTransitGateFromState(const std::string &sm_state);
+   private:  // HELPERS
+    /**
+     * @brief Change the current planner mode.
+     * @param new_mode target mode.
+     * @param reason human-readable explanation for the log.
+     */
+    void changeMode(PlannerMode new_mode, const std::string& reason);
+    void updateTransitGateFromState(const std::string& sm_state);
     void tryRecordTransitNode();
     void publishHeartbeat();
     void publishGraphMarkers();
@@ -271,49 +326,49 @@ private: // HELPERS
     void updateExploreGraphFromCandidates();
     void updateLocalPlanAndTrajectory();
     void publishCandidateMarkers();
-    bool isTargetMatch(const std::string &target) const;
-    bool isStaleCommand(const statemachine_pkg::msg::Command &msg) const;
+    bool isTargetMatch(const std::string& target) const;
+    bool isStaleCommand(const statemachine_pkg::msg::Command& msg) const;
     std::string heartbeatInfo() const;
-    bool isPlanningFrame(const std::string &frame_id) const;
-    bool isFresh(const rclcpp::Time &stamp) const;
+    bool isPlanningFrame(const std::string& frame_id) const;
+    bool isFresh(const rclcpp::Time& stamp) const;
     bool hasValidOdom() const;
     bool hasValidMap() const;
     bool hasValidPlanningInputs() const;
     bool canPublishPlannerOutput() const;
 
-    bool isFree(const geometry_msgs::msg::Point &point) const;
-    bool isOccupied(const geometry_msgs::msg::Point &point) const;
-    bool isUnknown(const geometry_msgs::msg::Point &point) const;
-    bool raycast(const geometry_msgs::msg::Point &origin, const geometry_msgs::msg::Point &target,
-                 geometry_msgs::msg::Point &hit_out, bool stop_on_unknown = true) const;
-    double clearance(const geometry_msgs::msg::Point &point) const;
-    std::optional<int> findNearestNodeId(const geometry_msgs::msg::Point &point, double radius_m) const;
-    std::vector<int> findNearbyNodeIds(const geometry_msgs::msg::Point &point, double radius_m) const;
-    int addOrMergeGraphNode(const geometry_msgs::msg::Point &point, bool is_transit, bool &inserted_new);
+    bool isFree(const geometry_msgs::msg::Point& point) const;
+    bool isOccupied(const geometry_msgs::msg::Point& point) const;
+    bool isUnknown(const geometry_msgs::msg::Point& point) const;
+    bool raycast(const geometry_msgs::msg::Point& origin, const geometry_msgs::msg::Point& target,
+                 geometry_msgs::msg::Point& hit_out, bool stop_on_unknown = true) const;
+    double clearance(const geometry_msgs::msg::Point& point) const;
+    std::optional<int> findNearestNodeId(const geometry_msgs::msg::Point& point, double radius_m) const;
+    std::vector<int> findNearbyNodeIds(const geometry_msgs::msg::Point& point, double radius_m) const;
+    int addOrMergeGraphNode(const geometry_msgs::msg::Point& point, bool is_transit, bool& inserted_new);
     void upsertGraphEdge(int from_id, int to_id);
     bool hasGraphEdge(int from_id, int to_id) const;
     void normalizePendingHoleQueue();
     std::optional<int> selectReachableHoleTargetNodeId(int start_node_id) const;
     void promoteHoleTargetToPending(int hole_node_id);
-    void queueEventInfo(const std::string &event_info, rclcpp::Time &last_event_time);
-    void publishDone(const std::string &info_code);
+    void queueEventInfo(const std::string& event_info, rclcpp::Time& last_event_time);
+    void publishDone(const std::string& info_code);
     std::optional<geometry_msgs::msg::Point> selectGoalPoint() const;
     bool hasUnvisitedFrontiers() const;
     std::optional<int> nearestUnvisitedFrontierNodeId(int start_node_id) const;
-    bool computeShortestPathNodeIds(int start_id, int goal_id, std::vector<int> &path_out) const;
+    bool computeShortestPathNodeIds(int start_id, int goal_id, std::vector<int>& path_out) const;
     bool startRouteToNode(int goal_node_id);
     bool ensureReturnHomeNode();
     void advanceRouteProgressIfReached();
-    bool shouldReplanForGoal(const geometry_msgs::msg::Point &goal) const;
-    bool computeLocalWaypointPath(const geometry_msgs::msg::Point &goal,
-                                  std::vector<geometry_msgs::msg::Point> &path) const;
-    void publishCurrentPlan(const std::vector<geometry_msgs::msg::Point> &path);
-    bool publishTrajectoryFromPath(const std::vector<geometry_msgs::msg::Point> &path);
-    GraphNode *findNodeById(int id);
-    const GraphNode *findNodeById(int id) const;
+    bool shouldReplanForGoal(const geometry_msgs::msg::Point& goal) const;
+    bool computeLocalWaypointPath(const geometry_msgs::msg::Point& goal,
+                                  std::vector<geometry_msgs::msg::Point>& path) const;
+    void publishCurrentPlan(const std::vector<geometry_msgs::msg::Point>& path);
+    bool publishTrajectoryFromPath(const std::vector<geometry_msgs::msg::Point>& path);
+    GraphNode* findNodeById(int id);
+    const GraphNode* findNodeById(int id) const;
     static double yawFromQuaternion(double x, double y, double z, double w);
 
-private: // STRING HELPERS
+   private:  // STRING HELPERS
     static std::string toString(PlannerMode mode);
     static std::string toHeartbeatInfo(PlannerMode mode);
     static std::string toString(GraphNodeStatus status);

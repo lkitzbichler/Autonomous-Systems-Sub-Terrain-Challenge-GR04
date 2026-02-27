@@ -12,10 +12,10 @@
 //       names of its contributors may be used to endorse or promote products
 //       derived from this software without specific prior written permission.
 //
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-// ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-// WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-// DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
 // DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
 // (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
 // LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
@@ -26,8 +26,8 @@
 #define EIGEN_CHECKS_ENTRYPOINT_H_
 
 #include <gflags/gflags.h>
-#include <gtest/gtest.h>
 #include <glog/logging.h>
+#include <gtest/gtest.h>
 
 // Let the Eclipse parser see the macro.
 #ifndef TEST
@@ -50,13 +50,13 @@
 #define TYPED_TEST(a, b) int Test_##a##_##b()
 #endif
 
-#define UNITTEST_ENTRYPOINT \
-    int main(int argc, char** argv) { \
-  google::InitGoogleLogging(argv[0]); \
-  testing::InitGoogleTest(&argc, argv); \
-  google::ParseCommandLineFlags(&argc, &argv, true); \
-  ::testing::FLAGS_gtest_death_test_style = "threadsafe"; \
-  return RUN_ALL_TESTS();\
-}
+#define UNITTEST_ENTRYPOINT                                     \
+    int main(int argc, char** argv) {                           \
+        google::InitGoogleLogging(argv[0]);                     \
+        testing::InitGoogleTest(&argc, argv);                   \
+        google::ParseCommandLineFlags(&argc, &argv, true);      \
+        ::testing::FLAGS_gtest_death_test_style = "threadsafe"; \
+        return RUN_ALL_TESTS();                                 \
+    }
 
 #endif  // EIGEN_CHECKS_ENTRYPOINT_H_
