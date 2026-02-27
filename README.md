@@ -2,27 +2,33 @@
 
 # Contents
 
-- [1. Setup & Structure](#1-setup--structure)
-  - [1.1 Setup Guide](#11-setup-guide)
+- [1. Setup & Usage](#1-setup--usage)
+  - [1.1 Installation & Launch Guide](#11-setup--run-guide)
     - [1.1.0 Prerequisites](#110-prerequisites)
     - [1.1.1 Setup](#111-setup)
       - [1. Installation of git and git-lfs](#1-installation-of-git-and-git-lfs)
       - [2. Installation of ROS2 Jazzy](#2-installation-of-ros2-jazzy)
       - [3. Installation of build essentials](#3-installation-of-build-essentials)
       - [4. Installation of Unity](#4-installation-of-unity)
-    - [1.2 Clone Repository (ssh)](#12-clone-repository-ssh)
-    - [1.3 Install & Setup VSCode](#13-install--setup-vscode)
-    - [1.4 Build Code](#14-build-code)
-    - [1.5 Run Everything](#15-run-everything)
+    - [1.1.2 Clone Repository (ssh)](#112-clone-repository-ssh)
+    - [1.1.3 Install & Setup VSCode](#113-install--setup-vscode)
+    - [1.1.4 Paste Simulation](#114-paste-simulation)
+    - [1.1.5 Build Code](#115-build-code)
+    - [1.1.6 Run Everything](#116-run-everything)
+  - [1.2 Usage & Opening of Voxel Map](#12-usage--opening-of-voxel-map)
+    - [1.2.1 Tips for usage](#121-tips-for-usage)
+    - [1.2.2 Open the voxelmap](#122-open-the-voxelmap)
 - [2. Project Planning](#2-project-planning)
   - [2.1 Team](#21-team)
   - [2.2 Requirements](#22-requirements)
   - [2.3 Working Packages](#23-working-packages)
   - [2.4 Project Plan](#24-project-plan)
-  - [3 Structure](#3-structure)
-    - [3.1 Flow Chart](#31-flow-chart)
-    - [3.2 Process Analysis](#32-process-analysis)
-      - [3.2.1 Statemachine](#321-statemachine)
+- [3 Structure](#3-structure)
+  - [3.1 Flow Chart](#31-flow-chart)
+  - [3.2 Process Analysis](#32-process-analysis)
+    - [3.2.1 Statemachine](#321-statemachine)
+      - [Sequence Diagram](#sequence-diagram)
+      - [State Diagram](#state-diagram)
 - [Literature](#literature)
 
 ---
@@ -30,15 +36,15 @@
 
 
 ---
-# 1. Setup & Structure
+# 1. Setup & Usage
 
-## 1.1 Setup Guide
+## 1.1 Installation & Launch Guide
 
 ### 1.1.0 Prerequisites
 >[!WARNING]
 >The Solution operates differently at different performances of computers.
 >Virtual machines should not be used!
->ALSO YOU HAVE TO INSTALL GIT-LFS BEFORE BUILDING/LAUNCHING
+>Furthermore there will be more packages installed by running the build.bash file
 
 ```text
 OS      :         Ubuntu 24.04.4 LTS
@@ -56,7 +62,7 @@ FREE SPACE:       100 GB
 ---
 ### 1.1.1 Setup
 
-For the simulation you need to install unity and 
+For a successful setup in order to run everything please follow these instructions!
 
 For use of git, python, ros2 and a successfull compilation of c++ the following packages have to be installed:
 
@@ -133,15 +139,25 @@ sudo apt install -y unityhub
 sudo apt install ros-jazzy-octomap-server ros-jazzy-pcl-ros ros-jazzy-depth-image-proc octovis
 ``` -->
 
-### 1.2 Clone Repository (ssh)
+### 1.1.2 Clone Repository (ssh)
 ```bash
 git clone git@github.com:lkitzbichler/Autonomous-Systems-Sub-Terrain-Challenge-GR04.git
 ```
 
-### 1.3 Install & Setup VSCode
+### 1.1.3 Install & Setup VSCode
+
 If you want to view the code correctly make shure to open the Workspace and install all recommended extensions.
 
-### 1.4 Build Code
+### 1.1.4 Paste Simulation
+
+1. [Download](https://syncandshare.lrz.de/getlink/fi7Vw11aA5WwyMBRPVQYun/) the LQ Simulation & Extract the folder.
+2. Rename Folder & Files:
+    Open the extracted folder "Simulation_LQ" and Rename the following parts:
+    Folder "Simulation_LQ_Data" to "Simulation_Data" and
+    File "Simulation_LQ.x86_64" to "Simulation.x86_64"
+3. Copy the Folder "Simulation_Data" with its contents, the Files "Simulation.x86_64" and "UnityPlayer.so" to the repository into the folder simulation, which is placed in the root.
+
+### 1.1.5 Build Code
 Bash file should be executable already.
 If not run from the repository's root:
 
@@ -156,7 +172,7 @@ When willing to finally build, run from the repository's root:
 ```
 
 
-### 1.5 Run Everything
+### 1.1.6 Run Everything
 
 
 Bash file should be executable already.
@@ -173,11 +189,25 @@ When willing to run the simulation and rest, run from the repository's root:
 ```
 
 
+## 1.2 Usage & Opening of Voxel Map
 
+### 1.2.1 Tips for usage
+
+1. Open a new terminal (make shure ros is sourced!!)
+2. Run ```rviz2``` and add topics of octomap, statemachine and pathplanner
+
+### 1.2.2 Open the voxelmap
+
+1. Open a new terminal (make shure ros is sourced!!)
+2. navigate to ```<repository>/ros2_ws/``` and then run ```octovis final_map.bt```
+
+
+
+
+---
 
 
 # 2. Project Planning
-
 
 ## 2.1 Team
 
@@ -186,7 +216,7 @@ When willing to run the simulation and rest, run from the repository's root:
 |---:|-----------|------------|----------------------|-------------|
 | 01 | Heller    | Leo        | N/A                  | LeoHeller   |
 | 02 | Kitzbichler | Leon | N/A | lkitzbichler |
-| 03 | Kristandra | Brian | N/A | N/A |
+| 03 | Kristandra | Brian | N/A | BKristandra |
 | 04 | Thimm | Dominik | N/A | dominik-thimm |
 | 05 | Waeger | Sebastian | N/A | 03807001 |
 
@@ -309,7 +339,7 @@ gantt
 
 
 
-## 3 Structure 
+# 3 Structure 
 
 ### 3.1 Flow Chart
 

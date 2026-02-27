@@ -31,12 +31,24 @@ sudo apt-get install -y --no-install-recommends \
 
 echo "[1/4] Building colcon workspace..."
 cd "${ROS_WS}"
-colcon build \
+colcon --log-base "${ROS_WS}/log" build \
   --build-base "${ROS_WS}/build" \
   --install-base "${ROS_WS}/install" \
-  --log-base "${ROS_WS}/log" \
   --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 echo "Build OK."
+
+echo "[2/4] Ensuring executable bit on Simulation.x86_64..."
+BIN="${SIM_DST}/Simulation.x86_64"
+if [[ -f "${BIN}" ]]; then
+  if [[ -x "${BIN}" ]]; then
+    echo "  - Already executable: Simulation.x86_64"
+  else
+    chmod +x "${BIN}"
+    echo "  - Set executable: Simulation.x86_64"
+  fi
+else
+  echo "WARN: ${BIN} not found (did install step run?)"
+fi
 
 # echo "[2/4] Ensuring destination exists..."
 # mkdir -p "${SIM_DST}"
