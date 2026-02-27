@@ -1,0 +1,9 @@
+octomap_server:
+  ros__parameters:
+    resolution: 1.0
+    frame_id: "world"
+    base_frame_id: "true_body"
+    height_map: true
+    sensor_model/max_range: 50.0
+    sensor_model/min_range: 0.1
+    filter_ground: false

@@ -9,6 +9,3 @@ ros2_ws/log/
 *.swo
 
 ros2_ws/statemachine_events.log
-# Unity simulation assets (download separately)
-simulation/
-
