@@ -1,38 +1,169 @@
-# [Autonomous Systems](https://sharelatex.tum.de/read/wchjfkvjgrcb#760f11): <br> Project Sub-Terrain Challenge (WS2025/26)
+# Autonomous Systems: <br> Project Sub-Terrain Challenge (WS2025/26)
 
 # Contents
-- [1. Project Planning](#1-project-planning)
-  - [1.1 Team](#11-team)
-  - [1.2 Requirements](#12-requirements)
-  - [1.3 Working Packages](#13-working-packages)
-  - [1.4 Project Plan](#14-project-plan)
-- [2. Setup & Structure](#2-setup--structure)
-  - [2.1 Setup Guide](#21-setup-guide)
-    - [2.1.0 Prerequisites](#210-prerequisites)
-    - [2.1.1 Clone Repository](#211-clone-repository)
-    - [2.1.2 Install & Setup VSCode](#212-install--setup-vscode)
-    - [2.1.3 Install all missing packages](#213-install-all-missing-packages)
-    - [2.1.4 Install & Setup ROS2 jazzy](#214-install--setup-ros2-jazzy)
-    - [2.1.5 Download & Move Simulation](#215-download--move-simulation)
-    - [2.1.6 Build Code](#216-build-code)
-    - [2.1.7 Run Everything](#217-run-everything)
-  - [2.2 Structure](#22-structure)
-    - [2.2.1 Flow Chart](#221-flow-chart)
-    - [2.2.2 Process Analysis](#222-process-analysis)
-      - [2.2.2.1 Statemachine](#2221-statemachine)
-    - [2.2.2 Thinking](#222-thinking)
-      - [Ideas](#ideas)
-      - [Overall Process Flow](#overall-process-flow)
-- [3. Methodology](#3-methodology)
-- [4. Results](#4-results)
+
+- [1. Setup & Structure](#1-setup--structure)
+  - [1.1 Setup Guide](#11-setup-guide)
+    - [1.1.0 Prerequisites](#110-prerequisites)
+    - [1.1.1 Setup](#111-setup)
+      - [1. Installation of git and git-lfs](#1-installation-of-git-and-git-lfs)
+      - [2. Installation of ROS2 Jazzy](#2-installation-of-ros2-jazzy)
+      - [3. Installation of build essentials](#3-installation-of-build-essentials)
+      - [4. Installation of Unity](#4-installation-of-unity)
+    - [1.2 Clone Repository (ssh)](#12-clone-repository-ssh)
+    - [1.3 Install & Setup VSCode](#13-install--setup-vscode)
+    - [1.4 Build Code](#14-build-code)
+    - [1.5 Run Everything](#15-run-everything)
+- [2. Project Planning](#2-project-planning)
+  - [2.1 Team](#21-team)
+  - [2.2 Requirements](#22-requirements)
+  - [2.3 Working Packages](#23-working-packages)
+  - [2.4 Project Plan](#24-project-plan)
+  - [3 Structure](#3-structure)
+    - [3.1 Flow Chart](#31-flow-chart)
+    - [3.2 Process Analysis](#32-process-analysis)
+      - [3.2.1 Statemachine](#321-statemachine)
 - [Literature](#literature)
 
 ---
 
-# 1. Project Planning
 
 
-## 1.1 Team
+---
+# 1. Setup & Structure
+
+## 1.1 Setup Guide
+
+### 1.1.0 Prerequisites
+>[!WARNING]
+>The Solution operates differently at different performances of computers.
+>Virtual machines should not be used!
+>ALSO YOU HAVE TO INSTALL GIT-LFS BEFORE BUILDING/LAUNCHING
+
+```text
+OS      :         Ubuntu 24.04.4 LTS
+ROS     :         ROS2 Jazzy
+ROS-DIR :         /opt/ros/jazzy
+UNITY-Version:    6.2
+
+MIN Tested Requirements: 
+CPU:              AMD Ryzen 5 8645HS
+GRAPHICS:         AMD Radeon 760M Graphics x 12
+RAM:              16 GB
+FREE SPACE:       100 GB
+```
+
+---
+### 1.1.1 Setup
+
+For the simulation you need to install unity and 
+
+For use of git, python, ros2 and a successfull compilation of c++ the following packages have to be installed:
+
+#### 1. Installation of git and git-lfs
+```bash
+sudo apt install -y git git-lfs
+```
+
+#### 2. Installation of ROS2 Jazzy
+1. Setup locale for ROS2 and python
+```bash
+sudo apt update
+sudo apt install -y locales software-properties-common
+sudo locale-gen en_US en_US.UTF-8
+sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+export LANG=en_US.UTF-8
+
+sudo add-apt-repository universe
+sudo apt update
+```
+
+2. Add ROS2 Jazzy repo for installation
+```bash
+sudo apt install -y curl ca-certificates gnupg lsb-release
+sudo mkdir -p /etc/apt/keyrings
+
+curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/ros-archive-keyring.gpg
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
+  | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+sudo apt update
+```
+
+3. Install ROS2 Jazzy and rviz2
+```bash
+sudo apt install -y ros-jazzy-desktop ros-jazzy-rviz2
+```
+
+#### 3. Installation of build essentials
+```bash
+sudo apt install -y curl build-essential cmake gdb python3-colcon-common-extensions python3-rosdep python3-vcstool
+sudo rosdep init 2>/dev/null || true
+rosdep update
+```
+
+#### 4. Installation of Unity
+Install **Unity Hub**, then install the required **Unity Editor version** for this project.
+
+1. Download and install Unity Hub
+2. In Unity Hub → **Installs** → **Install Editor**
+3. Install **Unity Editor <VERSION>** (plus optional modules you need, e.g. Windows/Linux Build Support)
+4. Open the project by selecting the repository folder in Unity Hub (**Add** → select repo root)
+
+<!-- Install required ros2 packages
+```bash
+sudo apt install ros-jazzy-octomap-server ros-jazzy-pcl-ros ros-jazzy-depth-image-proc octovis
+``` -->
+
+### 1.2 Clone Repository (ssh)
+```bash
+git clone git@github.com:lkitzbichler/Autonomous-Systems-Sub-Terrain-Challenge-GR04.git
+```
+
+### 1.3 Install & Setup VSCode
+If you want to view the code correctly make shure to open the Workspace and install all recommended extensions.
+
+### 1.4 Build Code
+Bash file should be executable already.
+If not run from the repository's root:
+
+```bash
+chmod +x build.bash
+```
+
+When willing to finally build, run from the repository's root:
+
+```bash
+./build.bash
+```
+
+
+### 1.5 Run Everything
+
+
+Bash file should be executable already.
+If not run from the repository's root:
+
+```bash
+chmod +x run.bash
+```
+
+When willing to run the simulation and rest, run from the repository's root:
+
+```bash
+./run.bash
+```
+
+
+
+
+
+# 2. Project Planning
+
+
+## 2.1 Team
 
 
 | ID | Last Name | First Name | Matriculation number | Github Name |
@@ -44,7 +175,7 @@
 | 05 | Waeger | Sebastian | N/A | 03807001 |
 
 
-## 1.2 Requirements
+## 2.2 Requirements
 
 <details>
 <summary>Show requirements</summary>
@@ -67,7 +198,7 @@
 
 
 
-## 1.3 Working Packages
+## 2.3 Working Packages
 
 <details>
 <summary>Show work packages</summary>
@@ -118,113 +249,53 @@ The work packages below summarize responsibilities and scope. Each package inclu
 
 
 
-## 1.4 Project Plan
+## 2.4 Project Plan
 
 ```mermaid
 gantt
   title Project Plan (High-Level)
   dateFormat  YYYY-MM-DD
   axisFormat  %b %d
+  tickInterval 1week
+  weekday monday
+  todayMarker on
 
   section Setup
-  Repo setup and tooling        :a1, 2026-01-15, 2d
+  Repo setup and tooling        :a1, 2026-01-15, 2026-01-17
 
   section Core Flight
-  Controller                    :a2, 2026-01-16, 6d
-  Trajectory to cave entrance   :a3, 2026-01-17, 10d
+  Controller                    :a2, 2026-01-16, 2026-01-30
+  Trajectory to cave entrance   :a3, 2026-01-19, 2026-02-01
+
+  section Mission Logic
+  State machine (mission orchestration) :a4, 2026-01-26, 2026-02-10
 
   section Autonomy
-  Octomap and voxel mapping     :a4, 2026-01-16, 12d
-  Lantern detection             :a5, 2026-01-24, 6d
-  Path planning (exploration)   :a6, 2026-01-27, 13d
+  Octomap and voxel mapping     :a5, 2026-01-16, 2026-01-28
+  Lantern detection             :a6, 2026-01-22, 2026-02-01
+  Path planning (exploration)   :a7, 2026-01-28, 2026-02-16
 
   section Validation
-  Testing and optimization      :a7, 2026-02-09, 7d
+  Testing and optimization      :a8, 2026-02-13, 2026-02-22
 
   section Reporting
-  Report writing                :a8, 2026-02-16, 2026-03-03
+  Report writing                :a9, 2026-02-09, 2026-03-02
+  Submission (Code + Documentation) :milestone, m1, 2026-03-02, 0d
 ```
 
 
 
 
 
----
-# 2. Setup & Structure
-
-## 2.1 Setup Guide
-
-
-### 2.1.0 Prerequisites
-
-
-```text
-OS      :         Ubuntu 24.04
-ROS     :         ROS2 Jazzy
-ROS-DIR :         /opt/ros/jazzy
-```
-
----
-
-For use of git, successfull compilation of c++ and the use of python the following packages have to be installed:
-
-```bash
-sudo apt install -y git git-lfs curl build-essential
-```
-
-Install required ros2 packages
-```bash
-sudo apt install ros-jazzy-octomap-server ros-jazzy-pcl-ros ros-jazzy-depth-image-proc octovis
-```
-
-### 2.1.1 Clone Repository
-
-### 2.1.2 Install & Setup VSCode
-
-### 2.1.3 Install all missing packages 
-
-### 2.1.4 Install & Setup ROS2 jazzy
-
-### 2.1.5 Download & Move Simulation
-
-### 2.1.6 Build Code
-
-
-Bash file should be executable already.
-If not run:
-
-```bash
-chmod +x build.bash
-```
-
-When willing to finally build, run:
-
-```bash
-./build.bash
-```
-
-
-### 2.1.7 Run Everything
-
-
-Bash file should be executable already.
-If not run:
-
-```bash
-chmod +x run.bash
-```
-
-When willing to run the simulation and rest, run:
-
-```bash
-./run.bash
-```
 
 
 
-## 2.2 Structure 
 
-### 2.2.1 Flow Chart
+
+
+## 3 Structure 
+
+### 3.1 Flow Chart
 
 ```mermaid
 flowchart LR
@@ -348,9 +419,9 @@ flowchart LR
 
 ```
 
-### 2.2.2 Process Analysis
+### 3.2 Process Analysis
 
-#### 2.2.2.1 Statemachine
+#### 3.2.1 Statemachine
 
 ##### Sequence Diagram
 ```mermaid
@@ -432,3 +503,9 @@ stateDiagram-v2
 ```
 
 # Literature
+
+Thanks to the following litertures!
+- chat gpt
+- chat gpt codex
+- paper controller
+- ...

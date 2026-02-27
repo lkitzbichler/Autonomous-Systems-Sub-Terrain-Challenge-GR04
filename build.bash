@@ -7,15 +7,24 @@ ROS_WS="${REPO_ROOT}/ros2_ws"
 SIM_SRC="${REPO_ROOT}/simulation"
 SIM_DST="${ROS_WS}/install/simulation/lib/simulation"
 
+# Source ROS 2 Jazzy base environment first.
+set +u
+if [[ -f "/opt/ros/jazzy/setup.bash" ]]; then
+  source "/opt/ros/jazzy/setup.bash"
+else
+  echo "ERROR: /opt/ros/jazzy/setup.bash not found. Please install ROS 2 Jazzy."
+  exit 1
+fi
+set -u
+
 echo "[0/4] Updating apt metadata and installing system deps..."
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-  ros-jazzy-navigation2 \
-  ros-jazzy-nav2-bringup \
   ros-jazzy-octomap-server \
-  ros-jazzy-visualization-msgs \
   ros-jazzy-pcl-ros \
+  ros-jazzy-visualization-msgs \
   ros-jazzy-depth-image-proc \
+  octovis \
   libgflags-dev
 
 echo "[1/4] Building colcon workspace..."
