@@ -28,6 +28,13 @@ namespace octomap {
 class OcTree;
 }
 
+/**
+ * @class StateMachine
+ * @brief Coordinates the high-level mission state machine for an autonomous UAV.
+ *
+ * Manages states like TAKEOFF, TRAVELLING, EXPLORING, RETURN_HOME, and LAND.
+ * Monitored nodes are checked via heartbeats, and commands are dispatched based on state transitions.
+ */
 class StateMachine : public rclcpp::Node {
    public:  // STATES & COMMANDS
     using MissionStates = statemachine_pkg::protocol::MissionStates;
@@ -35,44 +42,63 @@ class StateMachine : public rclcpp::Node {
     using AnswerStates = statemachine_pkg::protocol::AnswerStates;
 
    private:  // VARIABLES and STRUCTS
-    /// Helper struct to track node heartbeats
+    /**
+     * @brief Helper struct to track heartbeat status and state of monitored nodes.
+     */
     struct NodeInfo {
-        std::string name;
-        rclcpp::Time last_heartbeat{0, 0, RCL_ROS_TIME};
-        bool is_alive{false};
-        bool was_alive{false};
-        AnswerStates last_state{AnswerStates::UNKNOWN};
+        std::string node_name;                            ///< Name of the node in the system.
+        rclcpp::Time last_heartbeat{0, 0, RCL_ROS_TIME};  ///< Timestamp of the last received heartbeat.
+        bool is_alive{false};   ///< Flag indicating if the node is currently considered alive.
+        bool was_alive{false};  ///< Flag indicating if the node has been alive at least once.
+        AnswerStates last_state{AnswerStates::UNKNOWN};  ///< Last reported state of the node.
     };
 
-    MissionStates state_{MissionStates::WAITING};             // Current mission state
-    rclcpp::Time state_enter_time_{0, 0, RCL_ROS_TIME};       // Time when the current state was entered
-    rclcpp::Time last_takeoff_cmd_time_{0, 0, RCL_ROS_TIME};  // Last periodic TAKEOFF command dispatch
-    Commands last_cmd_{Commands::NONE};                       // Last command sent (for logging)
+    MissionStates current_mission_state_{MissionStates::WAITING};  ///< Current high-level mission state.
+    rclcpp::Time state_entry_timestamp_{
+        0, 0, RCL_ROS_TIME};  ///< Timestamp when the current mission state was entered.
+    rclcpp::Time last_takeoff_command_timestamp_{
+        0, 0, RCL_ROS_TIME};  ///< Timestamp of the last periodic TAKEOFF command dispatch.
+    Commands last_sent_command_{Commands::NONE};  ///< Last dispatched command (stored for logging and logic).
 
-    std::vector<NodeInfo> nodes_;                        // List of nodes to monitor for heartbeats
-    std::size_t detected_lantern_count_{0};              // Latest detector-reported lantern count
-    std::vector<std::size_t> detected_lantern_samples_;  // Latest detector-reported sightings per
-                                                         // lantern
-    std::vector<Eigen::Vector3d> checkpoint_positions_;  // List of checkpoint positions for visualization
-    std::vector<Eigen::Vector3d> checkpoint_positions_base_;  // Static checkpoints from params (without
-                                                              // takeoff start)
+    std::vector<NodeInfo>
+        monitored_nodes_;  ///< Collection of external nodes to monitor via heartbeat messages.
+    std::size_t latest_lantern_count_{
+        0};  ///< Most recently reported total count of unique lanterns discovered.
+    std::vector<std::size_t>
+        lantern_sighting_samples_;  ///< Cumulative sighting counts for each discovered lantern.
+    std::vector<Eigen::Vector3d> active_checkpoint_positions_m_;  ///< Current list of waypoints in meters for
+                                                                  ///< visualization and navigation.
+    std::vector<Eigen::Vector3d> base_checkpoint_positions_m_;    ///< Static waypoints from configuration in
+                                                                ///< meters (excludes dynamic takeoff start).
 
-    bool checkpoint_reached_{false};         // Flag to indicate a checkpoint was reached
-    short current_checkpoint_index_{-1};     // Index of the current checkpoint being targeted, -1 if none
-    bool start_checkpoint_inserted_{false};  // True once the takeoff checkpoint is inserted at list front
-    short landing_checkpoint_index_{-1};     // Index of the active landing checkpoint
+    bool is_checkpoint_reached_{
+        false};  ///< Flag triggered when the UAV reaches the current mission waypoint.
+    short active_checkpoint_index_{
+        -1};  ///< Index of the currently targeted waypoint in active_checkpoint_positions_m_ (-1 if none).
+    bool has_takeoff_checkpoint_been_inserted_{
+        false};  ///< True if a dynamic 5m-above-start waypoint has been prepended to the mission.
+    short active_landing_checkpoint_index_{
+        -1};  ///< Index of the dynamically generated landing waypoint (-1 if not yet generated).
 
-    bool boot_timeout_reported_{false};                   // Avoid spamming boot-timeout logs
-    bool has_current_pose_{false};                        // True once current pose has been received
-    bool has_octomap_{false};                             // True once an octomap has been received
-    geometry_msgs::msg::Point current_position_;          // Latest position from state estimate
-    std::string current_pose_frame_id_{"world"};          // Frame for current pose/path
-    std::vector<geometry_msgs::msg::Point> path_points_;  // Flight path points for visualization
-    bool planner_exploration_done_{false};                // Planner reported exploration completion
-    bool planner_return_home_done_{false};                // Planner reported return-home completion
-    std::shared_ptr<octomap::OcTree> octree_;             // Latest octomap for landing ground estimation
-    rclcpp::TimerBase::SharedPtr timer_;                  // Timer for periodic tasks like state
-                                                          // publishing and heartbeat checks
+    bool has_boot_timeout_been_reported_{
+        false};  ///< Prevents repeated log entries for boot timeout in WAITING state.
+    bool has_received_current_pose_{
+        false};  ///< True if at least one state estimation message has been received.
+    bool has_received_octomap_{
+        false};  ///< True if at least one octomap message has been received for ground estimation.
+    geometry_msgs::msg::Point current_position_m_;  ///< Latest UAV position in meters from state estimate.
+    std::string current_pose_frame_id_{
+        "world"};  ///< Reference frame ID for the current pose and visualization paths.
+    std::vector<geometry_msgs::msg::Point>
+        flight_path_points_;  ///< History of UAV positions for line-strip path visualization.
+    bool is_planner_exploration_completed_{
+        false};  ///< Flag indicating if the path planner node reported exploration is complete.
+    bool is_planner_return_home_completed_{
+        false};  ///< Flag indicating if the path planner node reported return-home is complete.
+    std::shared_ptr<octomap::OcTree>
+        latest_octomap_octree_;  ///< Cached octree used for map-based ground estimation during landing.
+    rclcpp::TimerBase::SharedPtr periodic_task_timer_;  ///< Timer governing periodic tasks like state
+                                                        ///< publishing and heartbeat monitoring.
 
    private:  // SUBSCRIBERS, PUBLISHERS, TIMERS
     // Publishers
@@ -148,59 +174,169 @@ class StateMachine : public rclcpp::Node {
     int node_waypoint_index_{-1};    // Basic waypoint node index
     int node_planner_index_{-1};     // Path planner node index
 
-   public:            // CONSTRUCTOR & METHODS
-    StateMachine();   // Constructor
-    ~StateMachine();  // Destructor
+   public:  // CONSTRUCTOR & METHODS
+    /**
+     * @brief Node constructor for StateMachine.
+     */
+    StateMachine();
 
-    void publishState();  // Publish the current state to the topic
-    void changeState(MissionStates new_state,
-                     const std::string& reason);  // Change the current state and publish it,
-                                                  // with a reason for logging
+    /**
+     * @brief Node destructor for StateMachine.
+     */
+    ~StateMachine();
 
-    void sendCommand(std::string recv_node,
-                     Commands cmd);  // Send a command to a specific node, with logging
-    void sendCommandWithTarget(
-        const std::string& recv_node, Commands cmd,
-        const geometry_msgs::msg::Point& target);  // Send a command with an optional target position
-    void handleAnswer(
-        const statemachine_pkg::msg::Answer::SharedPtr msg);  // Handle incoming answers/heartbeats from nodes
-                                                              // to update their alive status
+    /**
+     * @brief Formats the current state as a string and publishes it to the /state topic.
+     */
+    void publishState();
 
-    void onLanternDetections(
-        const geometry_msgs::msg::PoseArray::SharedPtr msg);  // Handle lantern detections
-    void onLanternCounts(
-        const std_msgs::msg::Int32MultiArray::SharedPtr msg);         // Handle detector sightings per lantern
-    void onOctomap(const octomap_msgs::msg::Octomap::SharedPtr msg);  // Update local octomap cache
-    void onCurrentStateEst(
-        const nav_msgs::msg::Odometry::SharedPtr msg);  // Update current position from state estimate
+    /**
+     * @brief Transitions the mission state, stores state entry time, and notifies via logging.
+     * @param target_mission_state The new mission state to enter.
+     * @param state_change_reason Human-readable explanation for the transition.
+     */
+    void changeState(MissionStates target_mission_state, const std::string& state_change_reason);
 
-    void onTimer();  // Timer callback for periodic tasks like publishing state and
-                     // checking node heartbeats
+    /**
+     * @brief Dispatches a high-level command to a specific node in the ROS 2 graph.
+     * @param receiver_node_name Exact string name of the target node.
+     * @param command_enum The instruction to send.
+     */
+    void sendCommand(std::string receiver_node_name, Commands command_enum);
 
-   private:                           // HELPER METHODS
-    void checkHeartbeats();           // Check node heartbeats and mark dead nodes
-    void checkCheckpoints();          // Evaluate checkpoint progress
-    void tryInsertStartCheckpoint();  // Insert takeoff checkpoint once a valid
-                                      // start pose is available
-    bool estimateGroundHeight(
-        double& ground_z_out) const;  // Estimate ground height below current UAV position from octomap
-    bool prepareLandingCheckpoint(
-        geometry_msgs::msg::Point& target_out);    // Build landing target and append/update dynamic
-                                                   // landing checkpoint
-    void handleFlagEvents();                       // React to flag changes (edge-triggered)
-    void publishPathViz();                         // Publish flight path visualization
-    void publishCheckpointViz();                   // Publish checkpoint markers
-    std::string nodeNameByIndex(int index) const;  // Resolve role index to node name
+    /**
+     * @brief Dispatches a command along with a specific waypoint target to a node.
+     * @param receiver_node_name Exact string name of the target node.
+     * @param command_enum The instruction to send.
+     * @param target_position_m A 3D coordinate in the world frame for the target.
+     */
+    void sendCommandWithTarget(const std::string& receiver_node_name, Commands command_enum,
+                               const geometry_msgs::msg::Point& target_position_m);
 
-   private:                                     // LOGGING
-    void logEvent(const std::string& message);  // Log a state machine event with a message
-    void logCommand(const std::string& recv_node,
-                    Commands cmd);  // Log a command sent to a node with the command details
-    void logLanternPose(const geometry_msgs::msg::PoseStamped& pose, int id,
-                        size_t count);  // Log a lantern detection with its pose, associated track
-                                        // ID, and count of detections for that track
+    /**
+     * @brief Processes heartbeat responses from external nodes to maintain health status.
+     * @param shared_answer_msg Pointer to the incoming protocol message.
+     */
+    void handleAnswer(const statemachine_pkg::msg::Answer::SharedPtr shared_answer_msg);
 
-   private:                                            // STRING HELPERS
-    static std::string toString(MissionStates state);  // Convert mission state enum to string
-    static std::string toString(Commands cmd);         // Convert command enum to string
+    /**
+     * @brief Callback function periodically invoked to update lantern detection status.
+     * @param pose_array_msg Array containing the current set of lantern poses in the field of view.
+     */
+    void onLanternDetections(const geometry_msgs::msg::PoseArray::SharedPtr pose_array_msg);
+
+    /**
+     * @brief Updates the confidence counts for each detected lantern.
+     * @param int_array_msg Number of sightings reported for each track by the detector.
+     */
+    void onLanternCounts(const std_msgs::msg::Int32MultiArray::SharedPtr int_array_msg);
+
+    /**
+     * @brief Caches the most recent Octomap for landing ground estimation.
+     * @param octomap_msg Binary encoded Octomap data.
+     */
+    void onOctomap(const octomap_msgs::msg::Octomap::SharedPtr octomap_msg);
+
+    /**
+     * @brief Receives the current UAV state estimate and updates local position.
+     * @param odometry_msg Standard odometry message containing current pose and frame.
+     */
+    void onCurrentStateEst(const nav_msgs::msg::Odometry::SharedPtr odometry_msg);
+
+    /**
+     * @brief Periodic loop callback for state machine logic (frequency set by pub_state_loop_sec_).
+     */
+    void onTimer();
+
+   private:  // HELPER METHODS
+    /**
+     * @brief Verifies that all expected nodes in the configuration are reporting heartbeats.
+     * Starts the mission transition when all required nodes are healthy.
+     */
+    void checkHeartbeats();
+
+    /**
+     * @brief Computes the distance to the current active waypoint and flags reaching events.
+     */
+    void checkCheckpoints();
+
+    /**
+     * @brief At initialization, attempts to insert a 5m takeoff checkpoint relative to the UAV's current
+     * start.
+     */
+    void tryInsertStartCheckpoint();
+
+    /**
+     * @brief Raycasts downward into the current Octomap to find a landing surface.
+     * @param calculated_ground_z_m Output variable for the estimated Z-elevation in meters.
+     * @return bool True if a valid ground surface was found below the UAV.
+     */
+    bool estimateGroundHeight(double& calculated_ground_z_m) const;
+
+    /**
+     * @brief Generates a safe landing waypoint based on local terrain or start-fallback.
+     * @param landing_target_out Output coordinate for the landing maneuver.
+     * @return bool True if a valid landing target could be calculated.
+     */
+    bool prepareLandingCheckpoint(geometry_msgs::msg::Point& landing_target_out);
+
+    /**
+     * @brief Handles logical side effects of state transitions and goal reach flags.
+     */
+    void handleFlagEvents();
+
+    /**
+     * @brief Publishes a LINE_STRIP marker illustrating the UAV's flight trajectory.
+     */
+    void publishPathViz();
+
+    /**
+     * @brief Publishes SPHERE markers illustrating mission waypoints.
+     */
+    void publishCheckpointViz();
+
+    /**
+     * @brief Maps node role indices to their configured string names.
+     * @param list_index Position in node_list_ parameter.
+     * @return std::string Resolved name or empty string if index is invalid.
+     */
+    std::string nodeNameByIndex(int list_index) const;
+
+   private:  // LOGGING
+    /**
+     * @brief Outputs an event string to the node's configured text log file.
+     * @param event_message Textual description of the system event.
+     */
+    void logEvent(const std::string& event_message);
+
+    /**
+     * @brief Records a sent command for persistence in the event log.
+     * @param receiver_node_name Target of the command.
+     * @param command_enum The command being dispatched.
+     */
+    void logCommand(const std::string& receiver_node_name, Commands command_enum);
+
+    /**
+     * @brief Generates a persistent CSV entry for a lantern discovery event.
+     * @param lantern_pose_stamped Pose data of the lantern.
+     * @param instance_id Track ID assigned by the detection package.
+     * @param total_detections_count Number of times the tracker has confirmed this lantern.
+     */
+    void logLanternPose(const geometry_msgs::msg::PoseStamped& lantern_pose_stamped, int instance_id,
+                        size_t total_detections_count);
+
+   private:  // STRING HELPERS
+    /**
+     * @brief Utility to convert MissionStates enum to readable text.
+     * @param current_state enum value to convert.
+     * @return std::string State name.
+     */
+    static std::string toString(MissionStates current_state);
+
+    /**
+     * @brief Utility to convert Commands enum to readable text.
+     * @param active_command enum value to convert.
+     * @return std::string Command name.
+     */
+    static std::string toString(Commands active_command);
 };
