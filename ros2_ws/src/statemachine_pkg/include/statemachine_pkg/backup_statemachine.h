@@ -1,22 +1,19 @@
 #pragma once
 
-#include <rclcpp/rclcpp.hpp>
-
-#include <string>
-#include <vector>
-
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/u_int8.hpp>
+#include <string>
+#include <vector>
 
-class StateMachine : public rclcpp::Node
-{
-public:
+class StateMachine : public rclcpp::Node {
+   public:
     StateMachine();
 
-private:
+   private:
     struct LanternTrack {
         int id{0};
         geometry_msgs::msg::Point mean;
@@ -51,16 +48,17 @@ private:
     };
 
     void onTimer();
-    void transitionTo(MissionState next_state, const std::string &reason);
+    void transitionTo(MissionState next_state, const std::string& reason);
     void handleStateEntry(MissionState state);
     void publishState();
-    void logLanternPose(const geometry_msgs::msg::PoseStamped &pose, int id, size_t count);
-    void logEvent(const std::string &message);
-    void logCommand(const std::string &topic, Command cmd);
+    void logLanternPose(const geometry_msgs::msg::PoseStamped& pose, int id, size_t count);
+    void logEvent(const std::string& message);
+    void logCommand(const std::string& topic, Command cmd);
     void checkSignalTimeouts();
-    void checkSignalTimeout(const std::string &name, const rclcpp::Time &last_time, bool &reported);
+    void checkSignalTimeout(const std::string& name, const rclcpp::Time& last_time, bool& reported);
     void onLanternDetections(const geometry_msgs::msg::PoseArray::SharedPtr msg);
-    int associateLantern(const geometry_msgs::msg::Point &pos, bool &is_new, geometry_msgs::msg::Point &mean_out, size_t &count_out);
+    int associateLantern(const geometry_msgs::msg::Point& pos, bool& is_new,
+                         geometry_msgs::msg::Point& mean_out, size_t& count_out);
 
     static std::string toString(MissionState state);
     static std::string toString(Command cmd);

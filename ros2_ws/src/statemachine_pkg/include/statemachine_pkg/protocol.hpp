@@ -2,19 +2,18 @@
 
 #include <cstdint>
 
-namespace statemachine_pkg::protocol
-{
+namespace statemachine_pkg::protocol {
 
 enum class MissionStates : uint8_t {
-    WAITING = 0,        // Waiting for ready signals to start mission
-    TAKEOFF = 1,        // Takeoff from start position
-    TRAVELLING = 2,     // Use basic_waypoint to reach cave entrance
-    EXPLORING = 3,      // Autonomous exploration (path planning)
-    RETURN_HOME = 4,    // Return to exit/home position
-    LAND = 5,           // Land and stop
-    DONE = 6,           // Mission finished
-    ERROR = 98,         // Error state
-    ABORTED = 99        // Manual abort
+    WAITING = 0,      // Waiting for ready signals to start mission
+    TAKEOFF = 1,      // Takeoff from start position
+    TRAVELLING = 2,   // Use basic_waypoint to reach cave entrance
+    EXPLORING = 3,    // Autonomous exploration (path planning)
+    RETURN_HOME = 4,  // Return to exit/home position
+    LAND = 5,         // Land and stop
+    DONE = 6,         // Mission finished
+    ERROR = 98,       // Error state
+    ABORTED = 99      // Manual abort
 };
 
 enum class Commands : uint8_t {
@@ -29,9 +28,9 @@ enum class Commands : uint8_t {
 };
 
 enum class AnswerStates : uint8_t {
-    RUNNING = 0,        // Node is actively working
-    DONE = 1,           // Planner completion
-    UNKNOWN = 255       // Unknown/undefined status
+    RUNNING = 0,   // Node is actively working
+    DONE = 1,      // Planner completion
+    UNKNOWN = 255  // Unknown/undefined status
 };
 
 }  // namespace statemachine_pkg::protocol
