@@ -1,6 +1,72 @@
 path_planner:
   ros__parameters:
-    use_sim_time: false
-    command_topic: "statemachine/cmd"
-    heartbeat_topic: "heartbeat"
-    heartbeat_period_sec: 1.0
+    use_sim_time: false                                    # Use simulation clock instead of system time
+    topics:
+      command_topic: "statemachine/cmd"                    # Incoming commands from the state machine
+      state_topic: "statemachine/state"                    # Current mission state from the state machine
+      heartbeat_topic: "heartbeat"                         # Planner status/heartbeat output
+      odom_topic: "current_state_est"                      # Odometry input topic
+      map_topic: "octomap_binary"                          # Octomap input topic
+      trajectory_topic: "trajectory"                       # Outgoing trajectory topic
+      graph_markers_topic: "path_planner/graph_markers"    # RViz markers for planner graph
+      candidate_markers_topic: "path_planner/candidate_markers"  # RViz markers for candidate rays
+      current_plan_topic: "path_planner/current_plan"      # Published local plan (nav_msgs/Path)
+    time:
+      loop_period_sec: 0.2                                 # Planner main loop period
+      heartbeat_period_sec: 1.0                            # Heartbeat publish interval
+      input_timeout_sec: 1.0                               # Max odom age (<=0 disables timeout)
+      map_timeout_sec: 0.0                                 # Max map age (<=0 disables timeout)
+      command_stale_sec: 5.0                               # Reject stale command messages
+      heartbeat_on_mode_change: true                       # Publish heartbeat immediately on mode change
+      replan_period_sec: 0.5                               # Minimum interval between replans
+    commands:
+      accept_empty_target: false                           # Allow commands without target_node_name
+      accept_switch_to_explore_cmd: true                   # Allow SWITCH_TO_EXPLORE command
+    frames:
+      planning_frame: "world"                              # Expected frame for odom/map data
+    safety:
+      inflation_m: 1.0                                     # Safety inflation distance around obstacles
+      min_clearance_m: 1.5                                 # Minimum required clearance for valid points
+      clearance_step_m: 0.5                                # Step size used in clearance search
+      clearance_search_max_m: 8.0                          # Maximum radius for clearance search
+    graph:
+      transit_node_spacing_m: 10.0                         # Spacing between breadcrumb transit nodes
+      merge_radius_m: 3.0                                  # Radius for merging nearby graph nodes
+      ahead_query_dist_m: 12.0                             # Search distance for next frontier/goal
+      loop_connect_radius_m: 12.0                          # Radius for additional loop connections
+      loop_connect_max_links: 3                            # Max new loop edges added per cycle
+      route_node_reached_dist_m: 1.2                       # Distance threshold to mark route node reached
+    explore:
+      candidate_distance_m: 8.0                            # Range of local raycast candidates
+      candidate_half_fov_deg: 60.0                         # Horizontal half FOV for candidate rays
+      candidate_bin_count: 7                               # Number of horizontal ray bins
+      candidate_vertical_half_fov_deg: 30.0                # Vertical half FOV for candidate rays
+      candidate_vertical_bin_count: 3                      # Number of vertical ray bins
+      branch_probe_distance_m: 60.0                        # Depth used for side-opening/branch probing
+      side_opening_min_abs_yaw_deg: 80.0                   # Minimum side angle for branch candidate
+      side_opening_min_depth_m: 60.0                       # Minimum depth for a side opening
+      side_opening_bundle_half_yaw_deg: 10.0               # Half yaw span of side-opening sample bundle
+      side_opening_bundle_half_pitch_deg: 12.0             # Half pitch span of side-opening sample bundle
+      side_opening_bundle_yaw_bins: 5                      # Yaw resolution in side-opening bundle
+      side_opening_bundle_pitch_bins: 3                    # Pitch resolution in side-opening bundle
+      side_opening_required_fraction: 0.7                  # Required free-ray fraction to confirm opening
+      side_opening_confirm_cycles: 3                       # Required consecutive cycles for confirmation
+      side_opening_max_candidates: 1                       # Max stored side-opening targets per cycle
+      side_opening_reuse_radius_m: 15.0                    # Radius to reuse nearby side-frontier nodes
+      hole_marker_dedupe_radius_m: 10.0                    # Radius for deduplicating hole markers
+      prefer_unknown_over_free: true                       # Prefer unknown over free candidates
+      frontier_node_spacing_m: 6.0                         # Minimum spacing for new frontier seeds
+      max_frontier_nodes_per_cycle: 3                      # Max new frontier nodes per cycle
+      create_side_frontier_nodes: true                     # Enable special side-frontier/hole nodes
+      known_path_reject_radius_m: 4.0                      # Reject candidates near known transit paths
+      frontier_cleanup_radius_m: 10.0                      # Cleanup radius for local frontier refresh
+      event_cooldown_sec: 2.0                              # Minimum time between repeated events
+      loop_closure_min_node_age_sec: 2.0                   # Node age required before loop evidence counts
+      loop_closure_soft_confirm_cycles: 2                  # Soft loop needs this many confirmed cycles
+      loop_closure_soft_min_hops: 3                        # Soft loop threshold based on route hops
+      loop_closure_soft_min_route_len_m: 5.0               # Soft loop threshold based on route length
+    trajectory:
+      publish_enabled: true                                # Enable/disable trajectory publishing
+      nominal_speed_mps: 2.5                               # Target speed used for segment timing
+      min_segment_time_sec: 0.8                            # Lower bound for each segment duration
+      goal_replan_dist_m: 1.0                              # Replan when goal changes by at least this distance

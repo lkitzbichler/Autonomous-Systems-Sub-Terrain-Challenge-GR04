@@ -7,21 +7,48 @@ ROS_WS="${REPO_ROOT}/ros2_ws"
 SIM_SRC="${REPO_ROOT}/simulation"
 SIM_DST="${ROS_WS}/install/simulation/lib/simulation"
 
+# Source ROS 2 Jazzy base environment first.
+set +u
+if [[ -f "/opt/ros/jazzy/setup.bash" ]]; then
+  source "/opt/ros/jazzy/setup.bash"
+else
+  echo "ERROR: /opt/ros/jazzy/setup.bash not found. Please install ROS 2 Jazzy."
+  exit 1
+fi
+set -u
+
 echo "[0/4] Updating apt metadata and installing system deps..."
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-  ros-jazzy-navigation2 \
-  ros-jazzy-nav2-bringup \
   ros-jazzy-octomap-server \
-  ros-jazzy-visualization-msgs \
   ros-jazzy-pcl-ros \
+  ros-jazzy-visualization-msgs \
   ros-jazzy-depth-image-proc \
+  octovis \
+  libgoogle-glog-dev \
+  libnlopt-dev \
   libgflags-dev
 
 echo "[1/4] Building colcon workspace..."
 cd "${ROS_WS}"
-colcon build --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+colcon --log-base "${ROS_WS}/log" build \
+  --build-base "${ROS_WS}/build" \
+  --install-base "${ROS_WS}/install" \
+  --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 echo "Build OK."
+
+echo "[2/4] Ensuring executable bit on Simulation.x86_64..."
+BIN="${SIM_DST}/Simulation.x86_64"
+if [[ -f "${BIN}" ]]; then
+  if [[ -x "${BIN}" ]]; then
+    echo "  - Already executable: Simulation.x86_64"
+  else
+    chmod +x "${BIN}"
+    echo "  - Set executable: Simulation.x86_64"
+  fi
+else
+  echo "WARN: ${BIN} not found (did install step run?)"
+fi
 
 # echo "[2/4] Ensuring destination exists..."
 # mkdir -p "${SIM_DST}"

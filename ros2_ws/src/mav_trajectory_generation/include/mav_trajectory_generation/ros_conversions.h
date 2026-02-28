@@ -18,37 +18,31 @@
  * limitations under the License.
  */
 
- #ifndef MAV_TRAJECTORY_GENERATION_ROS__ROS_CONVERSIONS_HPP_
- #define MAV_TRAJECTORY_GENERATION_ROS__ROS_CONVERSIONS_HPP_
- 
- #include <mav_planning_msgs/msg/polynomial_trajectory.hpp>
- #include <mav_planning_msgs/msg/polynomial_trajectory4_d.hpp>
- #include <mav_planning_msgs/conversions.hpp>  // your own ported header
- 
- #include <mav_trajectory_generation/trajectory.h>
- 
- namespace mav_trajectory_generation
- {
- 
- // Converts a trajectory into a ROS2 polynomial trajectory msg.
- bool trajectoryToPolynomialTrajectoryMsg(
-   const Trajectory & trajectory,
-   mav_planning_msgs::msg::PolynomialTrajectory * msg);
- 
- bool trajectoryToPolynomialTrajectoryMsg(
-   const Trajectory & trajectory,
-   mav_planning_msgs::msg::PolynomialTrajectory4D * msg);
- 
- // Converts a ROS2 polynomial trajectory msg into a Trajectory.
- bool polynomialTrajectoryMsgToTrajectory(
-   const mav_planning_msgs::msg::PolynomialTrajectory & msg,
-   Trajectory * trajectory);
- 
- bool polynomialTrajectoryMsgToTrajectory(
-   const mav_planning_msgs::msg::PolynomialTrajectory4D & msg,
-   Trajectory * trajectory);
- 
- }  // namespace mav_trajectory_generation
- 
- #endif  // MAV_TRAJECTORY_GENERATION_ROS__ROS_CONVERSIONS_HPP_
- 
+#ifndef MAV_TRAJECTORY_GENERATION_ROS__ROS_CONVERSIONS_HPP_
+#define MAV_TRAJECTORY_GENERATION_ROS__ROS_CONVERSIONS_HPP_
+
+#include <mav_trajectory_generation/trajectory.h>
+
+#include <mav_planning_msgs/conversions.hpp>  // your own ported header
+#include <mav_planning_msgs/msg/polynomial_trajectory.hpp>
+#include <mav_planning_msgs/msg/polynomial_trajectory4_d.hpp>
+
+namespace mav_trajectory_generation {
+
+// Converts a trajectory into a ROS2 polynomial trajectory msg.
+bool trajectoryToPolynomialTrajectoryMsg(const Trajectory& trajectory,
+                                         mav_planning_msgs::msg::PolynomialTrajectory* msg);
+
+bool trajectoryToPolynomialTrajectoryMsg(const Trajectory& trajectory,
+                                         mav_planning_msgs::msg::PolynomialTrajectory4D* msg);
+
+// Converts a ROS2 polynomial trajectory msg into a Trajectory.
+bool polynomialTrajectoryMsgToTrajectory(const mav_planning_msgs::msg::PolynomialTrajectory& msg,
+                                         Trajectory* trajectory);
+
+bool polynomialTrajectoryMsgToTrajectory(const mav_planning_msgs::msg::PolynomialTrajectory4D& msg,
+                                         Trajectory* trajectory);
+
+}  // namespace mav_trajectory_generation
+
+#endif  // MAV_TRAJECTORY_GENERATION_ROS__ROS_CONVERSIONS_HPP_

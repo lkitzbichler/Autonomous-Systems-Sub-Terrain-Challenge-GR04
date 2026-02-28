@@ -25,21 +25,21 @@
 namespace mav_planning_msgs {
 
 struct EigenPolynomialSegment {
-  EigenPolynomialSegment() : segment_time_ns(0), num_coeffs(0) {};
+    EigenPolynomialSegment() : segment_time_ns(0), num_coeffs(0) {};
 
-  Eigen::VectorXd x;
-  Eigen::VectorXd y;
-  Eigen::VectorXd z;
-  Eigen::VectorXd yaw;
-  Eigen::VectorXd rx;
-  Eigen::VectorXd ry;
-  Eigen::VectorXd rz;
-  uint64_t segment_time_ns;
-  int num_coeffs;
+    Eigen::VectorXd x;
+    Eigen::VectorXd y;
+    Eigen::VectorXd z;
+    Eigen::VectorXd yaw;
+    Eigen::VectorXd rx;
+    Eigen::VectorXd ry;
+    Eigen::VectorXd rz;
+    uint64_t segment_time_ns;
+    int num_coeffs;
 };
 
 typedef std::vector<EigenPolynomialSegment> EigenPolynomialTrajectory;
 
-}
+}  // namespace mav_planning_msgs
 
-#endif // MAV_PLANNING_MSGS_EIGEN_MAV_MSGS_H
+#endif  // MAV_PLANNING_MSGS_EIGEN_MAV_MSGS_H

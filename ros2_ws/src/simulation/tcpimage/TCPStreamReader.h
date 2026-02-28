@@ -1,22 +1,24 @@
 #pragma once
 
 #include <stdint.h>
-#include <string>
-#include <memory>
+
 #include <iostream>
 #include <libsocket/inetserverstream.hpp>
 #include <libsocket/select.hpp>
+#include <memory>
+#include <string>
 
 class TCPStreamReader {
     std::string m_host;
     std::string m_port;
     libsocket::inet_stream_server m_server;
     libsocket::inet_stream_server* m_ready_server;
-    libsocket::inet_stream *m_server_stream;
+    libsocket::inet_stream* m_server_stream;
     libsocket::selectset<libsocket::inet_stream_server> m_server_set;
     libsocket::selectset<libsocket::inet_stream_server>::ready_socks m_readypair;
     bool m_good;
-public:
+
+   public:
     TCPStreamReader(std::string const& host, std::string const& port);
     virtual ~TCPStreamReader();
     void WaitConnect();

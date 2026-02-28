@@ -22,6 +22,7 @@
 #define MAV_TRAJECTORY_GENERATION_TRAJECTORY_SAMPLING_H_
 
 #include <mav_msgs/eigen_mav_msgs.hpp>
+
 #include "mav_trajectory_generation/trajectory.h"
 
 namespace mav_trajectory_generation {
@@ -35,24 +36,19 @@ namespace mav_trajectory_generation {
 bool sampleTrajectoryAtTime(const Trajectory& trajectory, double sample_time,
                             mav_msgs::EigenTrajectoryPoint* state);
 
-bool sampleTrajectoryInRange(const Trajectory& trajectory, double min_time,
-                             double max_time, double sampling_interval,
-                             mav_msgs::EigenTrajectoryPointVector* states);
+bool sampleTrajectoryInRange(const Trajectory& trajectory, double min_time, double max_time,
+                             double sampling_interval, mav_msgs::EigenTrajectoryPointVector* states);
 
-bool sampleTrajectoryStartDuration(
-    const Trajectory& trajectory, double start_time, double duration,
-    double sampling_interval, mav_msgs::EigenTrajectoryPointVector* states);
+bool sampleTrajectoryStartDuration(const Trajectory& trajectory, double start_time, double duration,
+                                   double sampling_interval, mav_msgs::EigenTrajectoryPointVector* states);
 
-bool sampleWholeTrajectory(const Trajectory& trajectory,
-                           double sampling_interval,
+bool sampleWholeTrajectory(const Trajectory& trajectory, double sampling_interval,
                            mav_msgs::EigenTrajectoryPoint::Vector* states);
 
-bool sampleSegmentAtTime(const Segment& segment, double sample_time,
-                         mav_msgs::EigenTrajectoryPoint* state);
+bool sampleSegmentAtTime(const Segment& segment, double sample_time, mav_msgs::EigenTrajectoryPoint* state);
 
-template<class T>
-bool sampleFlatStateAtTime(const T& type, double sample_time,
-                           mav_msgs::EigenTrajectoryPoint* state);
+template <class T>
+bool sampleFlatStateAtTime(const T& type, double sample_time, mav_msgs::EigenTrajectoryPoint* state);
 
 }  // namespace mav_trajectory_generation
 

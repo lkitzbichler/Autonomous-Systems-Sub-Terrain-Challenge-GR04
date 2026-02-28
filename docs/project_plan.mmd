@@ -1,0 +1,58 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#ffffff",
+    "fontFamily": "Helvetica, Arial, sans-serif",
+    "textColor": "#111111",
+    "gridColor": "#8f98a6",
+    "sectionBkgColor": "#eef1f5",
+    "altSectionBkgColor": "#e2e7ee",
+    "taskBkgColor": "#c8ced7",
+    "taskBorderColor": "#4f5a66",
+    "taskTextColor": "#111111",
+    "todayLineColor": "#ffffff"
+  },
+  "gantt": {
+    "useMaxWidth": false,
+    "useWidth": 1200,
+    "barHeight": 30,
+    "barGap": 7,
+    "topPadding": 50,
+    "leftPadding": 115,
+    "rightPadding": 35,
+    "gridLineStartPadding": 50,
+    "fontSize": 13,
+    "sectionFontSize": 14,
+    "numberSectionStyles": 4
+  },
+  "themeCSS": ".sectionTitle{fill:#111111!important;font-weight:700;} .taskText,.taskTextOutsideRight,.taskTextOutsideLeft,.taskText0,.taskText1,.taskText2,.taskText3,.taskText4,.taskText5,.milestoneText{fill:#111111!important;font-weight:600!important;} .section,.section0,.section2,.section4,.section6,.section8,.section10{fill:#eef1f5!important;opacity:.82!important;stroke:none!important;} .section1,.section3,.section5,.section7,.section9,.section11{fill:#e2e7ee!important;opacity:.82!important;stroke:none!important;} rect.section,rect.section0,rect.section1,rect.section2,rect.section3,rect.section4,rect.section5,rect.section6,rect.section7,rect.section8,rect.section9{opacity:.82!important;} g.grid g.tick line,.grid .tick line,.tick line{stroke:#8f98a6!important;stroke-width:1.1px!important;opacity:1!important;} rect.grid{stroke:none!important;} path.domain{stroke:#8f98a6!important;stroke-width:1px!important;} .task{stroke:#4f5a66!important;stroke-width:2px!important;} .milestone{fill:#6d7784!important;stroke:#4f5864!important;}"
+}}%%
+gantt
+  title Project Plan (High-Level)
+  dateFormat  YYYY-MM-DD
+  axisFormat  %b %d
+  tickInterval 1week
+  weekday monday
+  todayMarker off
+
+  section Setup
+  Repo setup and tooling        :a1, 2026-01-15, 2026-01-17
+
+  section Core Flight
+  Controller                    :a2, 2026-01-16, 2026-01-30
+  Trajectory to cave entrance   :a3, 2026-01-19, 2026-02-01
+
+  section Mission Logic
+  State machine (mission orchestration) :a4, 2026-01-26, 2026-02-10
+
+  section Autonomy
+  Octomap and voxel mapping     :a5, 2026-01-16, 2026-01-28
+  Lantern detection             :a6, 2026-01-22, 2026-02-01
+  Path planning (exploration)   :a7, 2026-01-28, 2026-02-16
+
+  section Validation
+  Testing and optimization      :a8, 2026-02-13, 2026-02-22
+
+  section Reporting
+  Report writing                :a9, 2026-02-09, 2026-03-02
+  Submission (Code + Documentation) :milestone, m1, 2026-03-02, 0d
