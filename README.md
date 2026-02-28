@@ -141,7 +141,7 @@ sudo apt install ros-jazzy-octomap-server ros-jazzy-pcl-ros ros-jazzy-depth-imag
 
 ### 1.1.2 Clone Repository (ssh)
 ```bash
-git clone git@github.com:lkitzbichler/Autonomous-Systems-Sub-Terrain-Challenge-GR04.git
+git clone https://github.com/lkitzbichler/Autonomous-Systems-Sub-Terrain-Challenge-GR04.git
 ```
 
 ### 1.1.3 Install & Setup VSCode
