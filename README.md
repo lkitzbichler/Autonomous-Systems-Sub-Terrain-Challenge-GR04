@@ -139,7 +139,7 @@ sudo apt install -y unityhub
 sudo apt install ros-jazzy-octomap-server ros-jazzy-pcl-ros ros-jazzy-depth-image-proc octovis
 ``` -->
 
-### 1.1.2 Clone Repository (ssh)
+### 1.1.2 Clone Repository
 ```bash
 git clone https://github.com/lkitzbichler/Autonomous-Systems-Sub-Terrain-Challenge-GR04.git
 ```
