@@ -474,15 +474,16 @@ flowchart LR
 sequenceDiagram
     autonumber
     participant SM as state_machine_node
-    participant BP as basic_waypoint_node
-    participant PP as pathplanner_node
+    participant BP as planner (basic_waypoint_node)
+    participant PP as path_planner (pathplanner_node)
     participant TS as trajectory_sampler_node
     participant CTRL as controller_node
-    participant MAP as octomap_server
     participant DET as lantern_detector
+    participant PC as point_cloud_xyz_node
+    participant MAP as octomap_server
     participant UROS as unity_ros
-    participant UST as unity_state
     participant SEC as state_estimate_corruptor
+    participant UST as unity_state
     participant W2U as w_to_unity
     participant SIM as Simulation.x86_64
 
@@ -494,22 +495,39 @@ sequenceDiagram
     SIM-->>UROS: TCP 9998 (sensor stream)
     UROS-->>SEC: /true_pose (PoseStamped)
     UROS-->>SEC: /true_twist (TwistStamped)
-    SIM-->>UST: TCP 12347
-    UST-->>CTRL: current_state_est (Odometry)
+    SEC-->>SM: /current_state_est (Odometry)
     SEC-->>BP: /current_state_est (Odometry)
+    SEC-->>PP: /current_state_est (Odometry)
+    SEC-->>CTRL: /current_state_est (Odometry)
+
+    UROS-->>PC: /realsense/depth/image + /camera_info
+    PC-->>MAP: /realsense/depth/points (PointCloud2)
+
+    UROS-->>DET: /realsense/depth/image
+    UROS-->>DET: /realsense/depth/camera_info
+    UROS-->>DET: /Quadrotor/Sensors/SemanticCamera/image_raw
+
+    MAP-->>SM: octomap_binary (Octomap)
+    MAP-->>PP: octomap_binary (Octomap)
+
+    SIM-->>UST: TCP 12347
+    UST-->>SM: current_state (Odometry, unused)
 
     %% Commands from statemachine
-    SM->>CTRL: statemachine/cmd (Command)
+    SM->>CTRL: statemachine/cmd (START/HOLD)
     SM->>MAP: node presence check (ROS graph)
-    SM->>DET: no runtime command (always-on)
-    SM->>BP: statemachine/cmd (Command)
-    SM->>PP: statemachine/cmd (Command)
+    SM->>BP: statemachine/cmd (TAKEOFF/START/LAND/HOLD)
+    SM->>PP: statemachine/cmd (START/RETURN_HOME/HOLD)
+    SM->>PP: statemachine/state (String)
 
     %% Feedback to statemachine
     BP-->>SM: heartbeat (Answer)
     PP-->>SM: heartbeat (Answer)
-    MAP-->>SM: octomap_binary (Octomap)
+    TS-->>SM: heartbeat (Answer)
+    CTRL-->>SM: heartbeat (Answer)
+    DET-->>SM: heartbeat (Answer)
     DET-->>SM: detected_lanterns (PoseArray)
+    DET-->>SM: detected_lanterns/counts (Int32MultiArray)
 
     %% Trajectory flow
     BP->>TS: trajectory (PolynomialTrajectory4D)
@@ -533,18 +551,22 @@ stateDiagram-v2
   state "RETURN_HOME<br>go back to start checkpoint" as RETURN_HOME
   state "LAND<br>landing command" as LAND
   state "DONE<br>mission finished" as DONE
-  state "ERROR<br>failure/timeout" as ERROR
-  state "ABORTED<br>manual abort" as ABORTED
+  state "ERROR<br>reserved fallback state" as ERROR
+  state "ABORTED<br>reserved fallback state" as ABORTED
 
   [*] --> WAITING
-  WAITING --> TAKEOFF: all nodes online + start checkpoint available
+  WAITING --> TAKEOFF: all monitored nodes alive + start checkpoint inserted
+  WAITING --> WAITING: boot timeout -> log missing nodes
   TAKEOFF --> TRAVELLING: checkpoint 0 reached
   TRAVELLING --> EXPLORING: checkpoint 1 reached
-  EXPLORING --> RETURN_HOME: planner DONE + 5 lanterns
-  RETURN_HOME --> LAND: return-home target reached (takeoff start checkpoint)
+  EXPLORING --> RETURN_HOME: >= 5 unique lanterns detected
+  RETURN_HOME --> LAND: planner DONE_RETURN_HOME_REACHED
+  RETURN_HOME --> LAND: or home checkpoint reached
   LAND --> DONE: landing checkpoint reached
 
   DONE --> [*]
+  ERROR --> [*]
+  ABORTED --> [*]
 
 ```
 
