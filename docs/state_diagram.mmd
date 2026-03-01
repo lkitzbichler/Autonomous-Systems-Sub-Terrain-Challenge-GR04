@@ -1,0 +1,42 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#ffffff",
+    "fontFamily": "Helvetica, Arial, sans-serif",
+    "primaryColor": "#eef1f5",
+    "primaryBorderColor": "#4f5a66",
+    "primaryTextColor": "#111111",
+    "noteBkgColor": "#eceff3",
+    "noteBorderColor": "#4f5a66",
+    "noteTextColor": "#111111",
+    "lineColor": "#4f5a66",
+    "textColor": "#111111"
+  }
+}}%%
+stateDiagram-v2
+  state "WAITING<br>wait for nodes" as WAITING
+  state "TAKEOFF<br>takeoff sequence" as TAKEOFF
+  state "TRAVELLING<br>fixed trajectory" as TRAVELLING
+  state "EXPLORING<br>autonomous explore" as EXPLORING
+  state "RETURN_HOME<br>go back to start checkpoint" as RETURN_HOME
+  state "LAND<br>landing command" as LAND
+  state "ERROR<br>reserved fallback state" as ERROR
+  state "DONE<br>mission finished" as DONE
+  state "ABORTED<br>reserved fallback state" as ABORTED
+
+  [*] --> WAITING
+  WAITING --> TAKEOFF: all heartbeat-monitored nodes alive + start checkpoint inserted
+  note right of WAITING
+    boot timeout -> log missing nodes
+    (state remains WAITING)
+  end note
+  TAKEOFF --> TRAVELLING: checkpoint 0 reached
+  TRAVELLING --> EXPLORING: checkpoint 1 reached
+  EXPLORING --> RETURN_HOME: >= 5 unique lanterns detected
+  RETURN_HOME --> LAND: planner DONE_RETURN_HOME_REACHED
+  RETURN_HOME --> LAND: or start checkpoint reached
+  LAND --> DONE: landing checkpoint reached
+
+  ERROR --> [*]
+  DONE --> [*]
+  ABORTED --> [*]

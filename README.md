@@ -550,22 +550,25 @@ stateDiagram-v2
   state "EXPLORING<br>autonomous explore" as EXPLORING
   state "RETURN_HOME<br>go back to start checkpoint" as RETURN_HOME
   state "LAND<br>landing command" as LAND
-  state "DONE<br>mission finished" as DONE
   state "ERROR<br>reserved fallback state" as ERROR
+  state "DONE<br>mission finished" as DONE
   state "ABORTED<br>reserved fallback state" as ABORTED
 
   [*] --> WAITING
-  WAITING --> TAKEOFF: all monitored nodes alive + start checkpoint inserted
-  WAITING --> WAITING: boot timeout -> log missing nodes
+  WAITING --> TAKEOFF: all heartbeat-monitored nodes alive + start checkpoint inserted
+  note right of WAITING
+    boot timeout -> log missing nodes
+    (state remains WAITING)
+  end note
   TAKEOFF --> TRAVELLING: checkpoint 0 reached
   TRAVELLING --> EXPLORING: checkpoint 1 reached
   EXPLORING --> RETURN_HOME: >= 5 unique lanterns detected
   RETURN_HOME --> LAND: planner DONE_RETURN_HOME_REACHED
-  RETURN_HOME --> LAND: or home checkpoint reached
+  RETURN_HOME --> LAND: or start checkpoint reached
   LAND --> DONE: landing checkpoint reached
 
-  DONE --> [*]
   ERROR --> [*]
+  DONE --> [*]
   ABORTED --> [*]
 
 ```
