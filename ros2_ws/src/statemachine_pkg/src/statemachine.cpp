@@ -36,7 +36,7 @@ constexpr double kTakeoffHeightM = 5.0;       ///< Fixed takeoff height above st
 constexpr double kMinStartPosNormM = 1e-3;    ///< Reject near-zero start pose (0,0,0) as invalid (meters).
 constexpr double kMinLandingDescentM = 0.05;  ///< Guard against non-descending landing targets (meters).
 constexpr std::size_t kRequiredLanternCount =
-    4;  ///< Mission target: unique lantern tracks required for completion.
+    5;  ///< Mission target: unique lantern tracks required for completion.
 
 }  // namespace
 

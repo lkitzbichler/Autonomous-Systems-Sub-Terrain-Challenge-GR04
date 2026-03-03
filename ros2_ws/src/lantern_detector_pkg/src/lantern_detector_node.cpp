@@ -157,7 +157,7 @@ void LanternDetectorNode::synchronized_callback(const sensor_msgs::msg::Image::C
         }
     }
 
-    if (valid_pixel_count > 0) {
+    if (valid_pixel_count > 100) {
         geometry_msgs::msg::PointStamped point_depth_frame;
         point_depth_frame.header = depth_msg->header;
         point_depth_frame.point.x = sum_x_m / valid_pixel_count;
