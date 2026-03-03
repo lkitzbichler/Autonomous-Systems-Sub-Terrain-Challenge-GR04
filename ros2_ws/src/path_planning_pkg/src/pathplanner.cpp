@@ -1773,6 +1773,10 @@ std::optional<geometry_msgs::msg::Point> PathPlanner::selectGoalPoint() const {
             continue;
         }
 
+        if (isOccupied(node.position)) {
+            continue;
+        }
+
         const double node_distance = euclideanDistance(origin, node.position);
         if (node_distance > max_query_dist) {
             continue;
@@ -2115,7 +2119,8 @@ bool PathPlanner::computeLocalWaypointPath(const geometry_msgs::msg::Point& goal
     const auto& origin = latest_odom_.pose.pose.position;
     path.push_back(origin);
 
-    if (euclideanDistance(origin, goal) <= 0.05) {
+    const double goal_dist = euclideanDistance(origin, goal);
+    if (goal_dist <= 0.05) {
         return false;
     }
 
@@ -2128,7 +2133,10 @@ bool PathPlanner::computeLocalWaypointPath(const geometry_msgs::msg::Point& goal
         return !raycast(a, b, hit, false) && !isOccupied(b);
     };
 
-    if (hasLineOfSight(origin, goal)) {
+    geometry_msgs::msg::Point direct_hit{};
+    const bool direct_blocked = raycast(origin, goal, direct_hit, false);
+    const bool goal_occupied = isOccupied(goal);
+    if (!direct_blocked && !goal_occupied) {
         path.push_back(goal);
         return true;
     }
@@ -2137,12 +2145,25 @@ bool PathPlanner::computeLocalWaypointPath(const geometry_msgs::msg::Point& goal
     bool bridge_found = false;
     geometry_msgs::msg::Point best_bridge{};
     double best_cost = std::numeric_limits<double>::max();
+    int exploratory_count = 0;
+    int blocked_origin_to_mid = 0;
+    int blocked_mid_to_goal = 0;
     for (const auto& candidate : latest_candidates_) {
         if (!isExploratory(candidate.status)) {
             continue;
         }
+        ++exploratory_count;
         const auto& mid = candidate.point;
-        if (!hasLineOfSight(origin, mid) || !hasLineOfSight(mid, goal)) {
+
+        const bool origin_to_mid_clear = hasLineOfSight(origin, mid);
+        if (!origin_to_mid_clear) {
+            ++blocked_origin_to_mid;
+            continue;
+        }
+
+        const bool mid_to_goal_clear = hasLineOfSight(mid, goal);
+        if (!mid_to_goal_clear) {
+            ++blocked_mid_to_goal;
             continue;
         }
 
@@ -2156,6 +2177,14 @@ bool PathPlanner::computeLocalWaypointPath(const geometry_msgs::msg::Point& goal
     }
 
     if (!bridge_found) {
+        RCLCPP_WARN_THROTTLE(
+            this->get_logger(), *this->get_clock(), 1000,
+            "[plan] local path blocked: direct_blocked=%s goal_occupied=%s goal_dist=%.2f "
+            "candidates_total=%zu exploratory=%d blocked_om=%d blocked_mg=%d unknown=%d free=%d "
+            "inflation=%.2f min_clearance=%.2f",
+            direct_blocked ? "true" : "false", goal_occupied ? "true" : "false", goal_dist,
+            latest_candidates_.size(), exploratory_count, blocked_origin_to_mid, blocked_mid_to_goal,
+            unknown_candidate_count_, free_candidate_count_, inflation_m_, min_clearance_m_);
         return false;
     }
 
