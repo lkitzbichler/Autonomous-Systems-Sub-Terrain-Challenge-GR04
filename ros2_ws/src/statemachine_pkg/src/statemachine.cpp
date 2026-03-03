@@ -36,7 +36,7 @@ constexpr double kTakeoffHeightM = 5.0;       ///< Fixed takeoff height above st
 constexpr double kMinStartPosNormM = 1e-3;    ///< Reject near-zero start pose (0,0,0) as invalid (meters).
 constexpr double kMinLandingDescentM = 0.05;  ///< Guard against non-descending landing targets (meters).
 constexpr std::size_t kRequiredLanternCount =
-    5;  ///< Mission target: unique lantern tracks required for completion.
+    4;  ///< Mission target: unique lantern tracks required for completion.
 
 }  // namespace
 
@@ -447,6 +447,12 @@ void StateMachine::onLanternDetections(const geometry_msgs::msg::PoseArray::Shar
         return;
     }
 
+    if (current_mission_state_ != MissionStates::EXPLORING) {
+        RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                              "Ignoring lantern detections outside EXPLORING state");
+        return;
+    }
+
     latest_lantern_count_ = pose_array_msg->poses.size();
 
     // Why: Keep the detector topic as the only source of truth for lantern identity/count.
@@ -475,6 +481,12 @@ void StateMachine::onLanternDetections(const geometry_msgs::msg::PoseArray::Shar
  */
 void StateMachine::onLanternCounts(const std_msgs::msg::Int32MultiArray::SharedPtr int_array_msg) {
     if (!int_array_msg) {
+        return;
+    }
+
+    if (current_mission_state_ != MissionStates::EXPLORING) {
+        RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                              "Ignoring lantern counts outside EXPLORING state");
         return;
     }
 
