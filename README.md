@@ -24,7 +24,7 @@
   - [2.3 Working Packages](#23-working-packages)
   - [2.4 Project Plan](#24-project-plan)
 - [3 Structure](#3-structure)
-  - [3.1 Flow Chart](#31-flow-chart)
+  - [3.1 ROS-Graph](#31-ROS-Graph)
   - [3.2 Process Analysis](#32-process-analysis)
     - [3.2.1 Statemachine](#321-statemachine)
       - [Sequence Diagram](#sequence-diagram)
@@ -33,7 +33,7 @@
 
 ---
 
-
+The Project report can be downloaded [here.](docs/Autonomous_Systems_Documentation_GR04.pdf)
 
 ---
 # 1. Setup & Usage
@@ -341,129 +341,8 @@ gantt
 
 # 3 Structure 
 
-### 3.1 Flow Chart
-
-```mermaid
-flowchart LR
-
-  %% Layout: top row (left -> right)
-  subgraph top_row[ ]
-    direction LR
-
-    subgraph statemachine_pkg
-      state_machine[state_machine_node]
-    end
-
-    subgraph lantern_detector_pkg
-      detector[lantern_detector]
-    end
-
-    subgraph mapping_pkg
-      octomap_server["octomap_server (octomap_server_node)"]
-    end
-
-    subgraph path_planning_pkg
-      path_planner["path_planner (pathplanner_node)"]
-    end
-
-    subgraph basic_waypoint_pkg
-      planner["planner (basic_waypoint_node)"]
-    end
-
-    subgraph mav_trajectory_generation
-      sampler[trajectory_sampler_node]
-    end
-
-    subgraph controller_pkg
-      controller[controller_node]
-    end
-  end
-
-  %% Layout: bottom row
-  subgraph bottom_row[ ]
-    direction LR
-
-    subgraph simulation
-      unity_ros[unity_ros]
-      unity_state[unity_state]
-      w_to_unity[w_to_unity]
-      state_estimate_corruptor[state_estimate_corruptor_node]
-      sim_exec["Simulation (Simulation.x86_64)"]
-    end
-
-    %% Given Packages
-    subgraph mav_msgs
-      note1[pure UAV controll message type definition]
-    end
-
-    subgraph mav_planning_msgs
-      note2[pure trajectory, waypoint and marker message type definitions]
-    end
-
-    subgraph unused_topics
-      unused[(Unused/Visualization Topics)]
-    end
-  end
-
-  %% Connections (topics from statemachine)
-  state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> planner
-  planner -- "heartbeat (statemachine_pkg::msg::Answer)" --> state_machine
-
-  state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> path_planner
-  path_planner -- "heartbeat (statemachine_pkg::msg::Answer)" --> state_machine
-
-  state_machine -- "node presence check (ROS graph)" --> octomap_server
-  octomap_server -- "octomap_binary (octomap_msgs::msg::Octomap)" --> state_machine
-
-  state_machine -- "statemachine/cmd (statemachine_pkg::msg::Command)" --> controller
-
-  state_machine -- "no runtime command (always-on)" --> detector
-  detector -- "detected_lanterns (geometry_msgs::msg::PoseArray)" --> state_machine
-
-  %% Unterbefehle
-
-  planner -- "trajectory (mav_planning_msgs::msg::PolynomialTrajectory4D)" --> sampler
-
-  path_planner -- "trajectory (mav_planning_msgs::msg::PolynomialTrajectory4D)" --> sampler
-
-  sampler -- "command/trajectory (trajectory_msgs::msg::MultiDOFJointTrajectory)" --> controller
-
-  %% Weitere Verbindungen (Sensor/State)
-  unity_ros -- "/true_pose (geometry_msgs::msg::PoseStamped)" --> state_estimate_corruptor
-  unity_ros -- "/true_twist (geometry_msgs::msg::TwistStamped)" --> state_estimate_corruptor
-  state_estimate_corruptor -- "/current_state_est (nav_msgs::msg::Odometry)" --> planner
-  unity_state -- "current_state_est (nav_msgs::msg::Odometry)" --> controller
-  unity_state -- "current_state_est (nav_msgs::msg::Odometry)" --> state_machine
-  controller -- "rotor_speed_cmds (mav_msgs::msg::Actuators)" --> w_to_unity
-  w_to_unity -. "UDP 12346" .-> sim_exec
-  sim_exec -. "TCP 12347" .-> unity_state
-  sim_exec -. "TCP 9998 (sensor stream)" .-> unity_ros
-  unity_ros -. "TCP 9999 (commands)" .-> sim_exec
-
-  %% Topics not consumed in this repo (visualization/unused here)
-  planner -- "trajectory_markers (visualization_msgs::msg::MarkerArray)" --> unused
-  unity_ros -- "/realsense/rgb/left_image_raw (sensor_msgs::msg::Image)" --> unused
-  unity_ros -- "/realsense/rgb/right_image_raw (sensor_msgs::msg::Image)" --> unused
-  unity_ros -- "/realsense/depth/image (sensor_msgs::msg::Image)" --> unused
-  unity_ros -- "/interpolate_imu/imu (sensor_msgs::msg::Imu)" --> unused
-  state_estimate_corruptor -- "/pose_est (geometry_msgs::msg::PoseStamped)" --> unused
-  state_estimate_corruptor -- "/twist_est (geometry_msgs::msg::TwistStamped)" --> unused
-  state_machine -- "statemachine/state (std_msgs::msg::String)" --> unused
-
-  octomap_server -- "octomap_binary (octomap_msgs::msg::Octomap)" --> unused
-  octomap_server -- "octomap_full (octomap_msgs::msg::Octomap)" --> unused
-  octomap_server -- "octomap_markers (visualization_msgs::msg::MarkerArray)" --> unused
-
-  %% Link styling (GitHub + VSCode Mermaid)
-  %% 0,2,4,6,7 = commands from statemachine
-  %% 1,3,5,8 = feedback to statemachine
-  linkStyle 0,2,4,6,7 stroke:#e53935,stroke-width:2px
-  linkStyle 1,3,5,8 stroke:#1e88e5,stroke-width:2px
-  linkStyle 9,10,11 stroke:#5a00ba,stroke-width:2px
-  linkStyle 12,13 stroke:#ba0063,stroke-width:2px
-  linkStyle 22,23,24,25,26,27,28,29,30,31,32 stroke:#9e9e9e,stroke-width:1px,stroke-dasharray:4 3
-
-```
+### 3.1 ROS-Graph
+![image](docs/rosgraph3.png)
 
 ### 3.2 Process Analysis
 
