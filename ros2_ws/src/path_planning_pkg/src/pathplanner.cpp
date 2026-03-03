@@ -2119,7 +2119,8 @@ bool PathPlanner::computeLocalWaypointPath(const geometry_msgs::msg::Point& goal
     const auto& origin = latest_odom_.pose.pose.position;
     path.push_back(origin);
 
-    if (euclideanDistance(origin, goal) <= 0.05) {
+    const double goal_dist = euclideanDistance(origin, goal);
+    if (goal_dist <= 0.05) {
         return false;
     }
 
